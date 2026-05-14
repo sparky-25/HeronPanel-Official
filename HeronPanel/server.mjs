@@ -1,0 +1,1657 @@
+import { createReadStream, existsSync, statSync } from "node:fs";
+import {
+  copyFile,
+  mkdir,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile
+} from "node:fs/promises";
+import { createServer } from "node:http";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
+import { dirname, extname, isAbsolute, join, normalize, relative } from "node:path";
+import { spawn } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
+import { inflateRawSync } from "node:zlib";
+import { fileURLToPath } from "node:url";
+
+const root = fileURLToPath(new URL(".", import.meta.url));
+const dataDir = join(root, "data");
+const serverRoot = join(dataDir, "servers");
+const backupRoot = join(dataDir, "backups");
+const statePath = join(dataDir, "panel-state.json");
+const port = Number(process.env.PORT || 4173);
+const runtimeScript = join(root, "runtimes", "minecraft-local-server.mjs");
+const runtimeCommand = `node "${runtimeScript}" "{{SERVER_ID}}" "{{SERVER_NAME}}"`;
+const processes = new Map();
+const sessions = new Map();
+const adminSeed = {
+  id: "usr-admin",
+  username: "Admin25@GET",
+  email: "admin88@gmail.com",
+  password: "admin@#1238A821",
+  backupPassword: "adminbackup001@#",
+  role: "admin"
+};
+
+const types = {
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".svg": "image/svg+xml; charset=utf-8",
+  ".png": "image/png",
+  ".mp4": "video/mp4",
+  ".json": "application/json; charset=utf-8",
+  ".md": "text/markdown; charset=utf-8",
+  ".ico": "image/x-icon"
+};
+
+const pluginCatalog = [
+  {
+    id: "pl-luckperms",
+    name: "LuckPerms",
+    version: "5.4",
+    description: "Permissions and rank management.",
+    icon: "shield",
+    sourceUrl: ""
+  },
+  {
+    id: "pl-essentials",
+    name: "EssentialsX",
+    version: "2.21",
+    description: "Homes, warps, economy, chat and moderation commands.",
+    icon: "terminal",
+    sourceUrl: ""
+  },
+  {
+    id: "pl-worldguard",
+    name: "WorldGuard",
+    version: "7.0",
+    description: "Regions, flags and grief protection.",
+    icon: "settings",
+    sourceUrl: ""
+  }
+];
+
+const modCatalog = [
+  {
+    id: "mod-sodium",
+    name: "Sodium",
+    version: "0.6",
+    description: "Fabric performance optimization.",
+    icon: "activity",
+    sourceUrl: ""
+  },
+  {
+    id: "mod-create",
+    name: "Create",
+    version: "0.5",
+    description: "Mechanical automation gameplay mod.",
+    icon: "code",
+    sourceUrl: ""
+  },
+  {
+    id: "mod-jei",
+    name: "Just Enough Items",
+    version: "17.3",
+    description: "Recipe browser for modded servers.",
+    icon: "package",
+    sourceUrl: ""
+  }
+];
+
+function defaultState() {
+  return {
+    coins: 125,
+    clickProgress: 0,
+    selectedServerId: "",
+    activeDetailTab: "console",
+    settings: {
+      panelName: "HeronPanel",
+      serverCost: 50,
+      maxServers: 10,
+      clickTarget: 100,
+      clickReward: 50,
+      primaryColor: "#19b7ff",
+      accentColor: "#ff9d3d",
+      motd: "Welcome to HeronPanel. Real backend, clean control.",
+      providers: {
+        local: true,
+        pterodactyl: true,
+        codesandbox: true,
+        github: true,
+        vps: true
+      }
+    },
+    pluginCatalog,
+    modCatalog,
+    servers: [],
+    players: [],
+    users: [adminUser()],
+    activity: ["Backend initialized. Panel state is stored in data/panel-state.json."]
+  };
+}
+
+let state = defaultState();
+
+function nowLine(message) {
+  return `[${new Date().toLocaleTimeString("en-IN", { hour12: false })}] ${message}`;
+}
+
+function hashSecret(value) {
+  return createHash("sha256").update(String(value)).digest("hex");
+}
+
+function adminUser() {
+  return {
+    id: adminSeed.id,
+    username: adminSeed.username,
+    email: adminSeed.email,
+    role: adminSeed.role,
+    passwordHash: hashSecret(adminSeed.password),
+    backupPasswordHash: hashSecret(adminSeed.backupPassword),
+    loginAliases: [adminSeed.username.toLowerCase(), adminSeed.email.toLowerCase()],
+    createdAt: new Date().toISOString()
+  };
+}
+
+function sanitizeUser(user) {
+  if (!user) return null;
+  return {
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    role: user.role || "user",
+    createdAt: user.createdAt
+  };
+}
+
+function ensureAdminUser() {
+  state.users = Array.isArray(state.users) ? state.users : [];
+  const existing = state.users.find((user) => user.id === adminSeed.id || user.email === adminSeed.email || user.username === adminSeed.username);
+  if (existing) {
+    existing.id = adminSeed.id;
+    existing.username = existing.username || adminSeed.username;
+    existing.email = existing.email || adminSeed.email;
+    existing.role = "admin";
+    existing.passwordHash = existing.passwordHash || hashSecret(adminSeed.password);
+    existing.backupPasswordHash = hashSecret(adminSeed.backupPassword);
+    existing.loginAliases = Array.from(new Set([
+      ...(existing.loginAliases || []),
+      adminSeed.username.toLowerCase(),
+      adminSeed.email.toLowerCase()
+    ]));
+    existing.createdAt = existing.createdAt || new Date().toISOString();
+    return;
+  }
+  state.users.unshift(adminUser());
+}
+
+function userLoginIds(user) {
+  return [
+    user.username,
+    user.email,
+    ...(user.loginAliases || [])
+  ].map((item) => String(item || "").trim().toLowerCase()).filter(Boolean);
+}
+
+function findUserByLogin(identifier) {
+  const normalized = String(identifier || "").trim().toLowerCase();
+  return state.users.find((user) => userLoginIds(user).includes(normalized));
+}
+
+function loginIdentityTaken(value, exceptUserId = "") {
+  const normalized = String(value || "").trim().toLowerCase();
+  return state.users.some((user) => user.id !== exceptUserId && userLoginIds(user).includes(normalized));
+}
+
+function verifyPassword(user, password) {
+  const passwordHash = hashSecret(password || "");
+  return user.passwordHash === passwordHash || user.backupPasswordHash === passwordHash;
+}
+
+function authenticate(request) {
+  const header = request.headers.authorization || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+  const userId = sessions.get(token);
+  const user = state.users.find((item) => item.id === userId);
+  if (!user) {
+    const error = new Error("Login required");
+    error.status = 401;
+    throw error;
+  }
+  return user;
+}
+
+function uid(prefix) {
+  return `${prefix}-${randomUUID().slice(0, 8)}`;
+}
+
+function slug(value) {
+  return String(value || "server")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 36) || "server";
+}
+
+async function ensureDirs() {
+  await mkdir(serverRoot, { recursive: true });
+  await mkdir(backupRoot, { recursive: true });
+  await mkdir(join(root, "runtimes"), { recursive: true });
+}
+
+async function loadState() {
+  await ensureDirs();
+  if (!existsSync(statePath)) {
+    state = defaultState();
+    await persist();
+    return;
+  }
+
+  const saved = JSON.parse((await readFile(statePath, "utf8")).replace(/^\uFEFF/, ""));
+  state = mergeState(defaultState(), saved);
+  for (const server of state.servers) {
+    if (server.status === "running") server.status = "stopped";
+    await ensureServerFiles(server);
+  }
+  await persist();
+}
+
+function mergeState(base, saved) {
+  const merged = { ...base, ...saved };
+  merged.settings = { ...base.settings, ...(saved.settings || {}) };
+  merged.settings.providers = {
+    ...base.settings.providers,
+    ...((saved.settings && saved.settings.providers) || {})
+  };
+  merged.pluginCatalog = saved.pluginCatalog || base.pluginCatalog;
+  merged.modCatalog = saved.modCatalog || base.modCatalog;
+  merged.servers = saved.servers || base.servers;
+  merged.players = saved.players || base.players;
+  merged.users = saved.users || base.users;
+  merged.activity = saved.activity || base.activity;
+  merged.pluginCatalog = hydrateCatalog(merged.pluginCatalog, base.pluginCatalog, "plugin");
+  merged.modCatalog = hydrateCatalog(merged.modCatalog, base.modCatalog, "mod");
+  merged.servers = merged.servers.map((server) => ({
+    icon: "assets/brand-logo.png",
+    ...server
+  }));
+  state = merged;
+  ensureAdminUser();
+  return merged;
+}
+
+function hydrateCatalog(items, defaults, type) {
+  return items.map((item, index) => {
+    const fallback = defaults.find((entry) => entry.id === item.id) || defaults[index] || {};
+    return {
+      icon: type === "plugin" ? "package" : "code",
+      ...fallback,
+      ...item
+    };
+  });
+}
+
+async function persist() {
+  await mkdir(dataDir, { recursive: true });
+  await writeFile(statePath, JSON.stringify(state, null, 2));
+}
+
+function publicState() {
+  return {
+    ...state,
+    users: state.users.map(sanitizeUser),
+    backend: {
+      connected: true,
+      storage: relative(root, statePath),
+      runningProcesses: processes.size,
+      mode: "node-rest-filesystem"
+    }
+  };
+}
+
+function addActivity(message) {
+  state.activity.unshift(message);
+  state.activity = state.activity.slice(0, 30);
+}
+
+function addLog(server, message) {
+  server.console.push(nowLine(message));
+  server.console = server.console.slice(-120);
+}
+
+function serverDir(server) {
+  return join(serverRoot, server.id);
+}
+
+async function ensureServerFiles(server) {
+  const base = serverDir(server);
+  await mkdir(join(base, "plugins"), { recursive: true });
+  await mkdir(join(base, "mods"), { recursive: true });
+  await mkdir(join(base, "world"), { recursive: true });
+  await mkdir(join(base, "logs"), { recursive: true });
+  await mkdir(join(base, "config"), { recursive: true });
+  const props = [
+    `motd=${server.motd || state.settings.motd}`,
+    `max-players=${server.options?.slots || 60}`,
+    `gamemode=${server.options?.gamemode || "survival"}`,
+    `difficulty=${server.options?.difficulty || "normal"}`,
+    `white-list=${Boolean(server.options?.whitelist)}`,
+    `pvp=${server.options?.pvp !== false}`,
+    `spawn-protection=${server.options?.spawnProtection || 16}`
+  ].join("\n");
+  await writeFile(join(base, "server.properties"), `${props}\n`);
+  await writeFile(join(base, "whitelist.json"), JSON.stringify(playersFor(server.id, "whitelisted"), null, 2));
+  await writeFile(join(base, "ops.json"), JSON.stringify(playersFor(server.id, "op"), null, 2));
+  await writeFile(join(base, "banned-players.json"), JSON.stringify(playersFor(server.id, "banned"), null, 2));
+}
+
+function playersFor(serverId, type) {
+  return state.players
+    .filter((player) => player.serverId === serverId)
+    .filter((player) => {
+      if (type === "whitelisted") return player.whitelisted;
+      if (type === "op") return ["Owner", "Operator"].includes(player.role);
+      if (type === "banned") return player.status === "banned";
+      return false;
+    })
+    .map((player) => ({ name: player.name, role: player.role, status: player.status }));
+}
+
+async function createServerRecord(input, spendCoins = true) {
+  const id = uid("srv");
+  const name = String(input.name || "New Server").trim();
+  const ram = Number(input.ram || 2);
+  const cpu = Number(input.cpu || 100);
+  const disk = Number(input.disk || 10);
+  const port = 25565 + state.servers.length;
+  const server = {
+    id,
+    name,
+    egg: input.egg || "Minecraft Java Paper",
+    provider: input.provider || "local",
+    region: input.region || "India - Mumbai",
+    runtime: input.runtime || "Java 21",
+    status: "stopped",
+    ram,
+    cpu,
+    disk,
+    allocation: `127.0.0.1:${port}`,
+    ports: [String(port), String(port + 1000)],
+    owner: "admin",
+    createdAt: new Date().toISOString(),
+    motd: state.settings.motd,
+    icon: "assets/brand-logo.png",
+    plugins: [],
+    mods: [],
+    backups: [],
+    databases: [
+      { id: uid("db"), name: `${slug(name).replaceAll("-", "_")}_main`, user: `${slug(name).replaceAll("-", "_")}_user`, host: "localhost" }
+    ],
+    schedules: [
+      { id: uid("sch"), name: "Daily restart", cron: "0 4 * * *", action: "restart", active: true }
+    ],
+    files: [],
+    options: {
+      slots: 60,
+      gamemode: "survival",
+      difficulty: "normal",
+      whitelist: true,
+      pvp: true,
+      commandBlocks: false,
+      cracked: false,
+      fly: false,
+      monsters: true,
+      animals: true,
+      nether: true,
+      spawnProtection: 16,
+      timezone: "Asia/Kolkata"
+    },
+    startup: {
+      command: runtimeCommand,
+      image: "local-node-runtime",
+      variables: {
+        SERVER_ID: id,
+        SERVER_NAME: name,
+        SERVER_MEMORY: String(ram * 1024),
+        SERVER_PORT: String(port)
+      }
+    },
+    subusers: [
+      { name: "owner", role: "Full access", permissions: ["Start", "Stop", "Console", "Files", "Backups", "Players"] }
+    ],
+    console: [
+      nowLine(`${name} filesystem created.`),
+      nowLine(`Adapter selected: ${input.provider || "local"}.`),
+      nowLine("Use Start to launch the local managed process.")
+    ]
+  };
+  await ensureServerFiles(server);
+  await refreshServerFileList(server);
+  if (spendCoins) state.coins -= Number(state.settings.serverCost);
+  return server;
+}
+
+async function refreshServerFileList(server) {
+  const base = serverDir(server);
+  server.files = await readTree(base);
+}
+
+async function listDirectory(server, targetPath = ".") {
+  const cleanPath = cleanOptionalPath(targetPath);
+  const fullPath = safeServerPath(server, cleanPath);
+  const directoryStat = await stat(fullPath);
+  if (!directoryStat.isDirectory()) throw new Error("Path is not a folder");
+  const entries = await readdir(fullPath, { withFileTypes: true });
+  const base = serverDir(server);
+  const files = [];
+  for (const entry of entries) {
+    const fullEntry = join(fullPath, entry.name);
+    const entryStat = await stat(fullEntry);
+    const entryPath = relative(base, fullEntry).replaceAll("\\", "/");
+    files.push({
+      name: entry.isDirectory() ? `${entryPath}/` : entryPath,
+      label: entry.name,
+      type: entry.isDirectory() ? "Folder" : extname(entry.name).replace(".", "").toUpperCase() || "File",
+      size: entry.isDirectory() ? "folder" : `${Math.max(1, Math.ceil(entryStat.size / 1024))} KB`,
+      bytes: entryStat.size
+    });
+  }
+  return files.sort((a, b) => {
+    if (a.type === "Folder" && b.type !== "Folder") return -1;
+    if (a.type !== "Folder" && b.type === "Folder") return 1;
+    return a.label.localeCompare(b.label);
+  });
+}
+
+async function readTree(base, dir = ".", files = []) {
+  const full = join(base, dir);
+  const entries = await readdir(full, { withFileTypes: true });
+  for (const entry of entries) {
+    const relativePath = dir === "." ? entry.name : `${dir}/${entry.name}`;
+    const entryStat = await stat(join(base, relativePath));
+    files.push({
+      name: entry.isDirectory() ? `${relativePath}/` : relativePath,
+      type: entry.isDirectory() ? "Folder" : extname(entry.name).replace(".", "").toUpperCase() || "File",
+      size: entry.isDirectory() ? "folder" : `${Math.max(1, Math.ceil(entryStat.size / 1024))} KB`
+    });
+    if (entry.isDirectory() && files.length < 500) {
+      await readTree(base, relativePath, files);
+    }
+  }
+  return files.slice(0, 80);
+}
+
+function safeServerPath(server, targetPath = ".") {
+  const base = serverDir(server);
+  const fullPath = normalize(join(base, String(targetPath || ".")));
+  const rel = relative(base, fullPath);
+  if (rel.startsWith("..") || isAbsolute(rel)) {
+    throw new Error("Path outside this server is blocked");
+  }
+  return fullPath;
+}
+
+function cleanRelativePath(value) {
+  const clean = String(value || "").replaceAll("\\", "/").trim();
+  if (!clean || clean === ".") throw new Error("Path required");
+  return clean.replace(/^\/+/, "");
+}
+
+function cleanOptionalPath(value) {
+  const clean = String(value || ".").replaceAll("\\", "/").trim().replace(/^\/+/, "").replace(/\/+$/, "");
+  return clean && clean !== "." ? clean : ".";
+}
+
+function cleanZipEntryPath(value) {
+  const clean = String(value || "").replaceAll("\\", "/").replace(/^\/+/, "");
+  const normalized = normalize(clean).replaceAll("\\", "/");
+  if (!clean || normalized.startsWith("../") || normalized === ".." || isAbsolute(normalized)) {
+    throw new Error("Invalid zip entry path");
+  }
+  return clean;
+}
+
+function decodeDataUrl(dataUrl) {
+  const match = String(dataUrl || "").match(/^data:[^;]*;base64,([a-zA-Z0-9+/=\r\n]+)$/);
+  if (!match) throw new Error("Invalid uploaded file data");
+  return Buffer.from(match[1].replace(/\s/g, ""), "base64");
+}
+
+function zipEntries(buffer) {
+  if (buffer.length < 22) throw new Error("Invalid zip file");
+  const maxSearch = Math.min(buffer.length, 66000);
+  let eocd = -1;
+  for (let offset = buffer.length - 22; offset >= buffer.length - maxSearch; offset -= 1) {
+    if (buffer.readUInt32LE(offset) === 0x06054b50) {
+      eocd = offset;
+      break;
+    }
+  }
+  if (eocd < 0) throw new Error("Invalid zip file");
+  const totalEntries = buffer.readUInt16LE(eocd + 10);
+  let offset = buffer.readUInt32LE(eocd + 16);
+  const entries = [];
+  for (let index = 0; index < totalEntries; index += 1) {
+    if (buffer.readUInt32LE(offset) !== 0x02014b50) throw new Error("Zip central directory is unreadable");
+    const flags = buffer.readUInt16LE(offset + 8);
+    const method = buffer.readUInt16LE(offset + 10);
+    const compressedSize = buffer.readUInt32LE(offset + 20);
+    const size = buffer.readUInt32LE(offset + 24);
+    const fileNameLength = buffer.readUInt16LE(offset + 28);
+    const extraLength = buffer.readUInt16LE(offset + 30);
+    const commentLength = buffer.readUInt16LE(offset + 32);
+    const localOffset = buffer.readUInt32LE(offset + 42);
+    const encoding = flags & 0x800 ? "utf8" : "utf8";
+    const name = buffer.toString(encoding, offset + 46, offset + 46 + fileNameLength).replaceAll("\\", "/");
+    entries.push({ name, directory: name.endsWith("/"), method, compressedSize, size, localOffset });
+    offset += 46 + fileNameLength + extraLength + commentLength;
+  }
+  return entries.filter((entry) => entry.name && !entry.name.startsWith("__MACOSX/"));
+}
+
+function listZipDirectory(entries, dirPath = "") {
+  const cleanDir = String(dirPath || "").replaceAll("\\", "/").replace(/^\/+|\/+$/g, "");
+  const prefix = cleanDir ? `${cleanDir}/` : "";
+  const map = new Map();
+  for (const entry of entries) {
+    if (!entry.name.startsWith(prefix)) continue;
+    const rest = entry.name.slice(prefix.length);
+    if (!rest) continue;
+    const parts = rest.split("/").filter(Boolean);
+    if (!parts.length) continue;
+    const isFolder = parts.length > 1 || entry.directory;
+    const label = parts[0];
+    const name = `${prefix}${label}${isFolder ? "/" : ""}`;
+    if (!map.has(name)) {
+      map.set(name, {
+        name,
+        label,
+        type: isFolder ? "Folder" : extname(label).replace(".", "").toUpperCase() || "File",
+        size: isFolder ? "folder" : `${Math.max(1, Math.ceil(entry.size / 1024))} KB`,
+        bytes: isFolder ? 0 : entry.size
+      });
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => {
+    if (a.type === "Folder" && b.type !== "Folder") return -1;
+    if (a.type !== "Folder" && b.type === "Folder") return 1;
+    return a.label.localeCompare(b.label);
+  });
+}
+
+function readZipEntry(buffer, entry) {
+  const offset = entry.localOffset;
+  if (buffer.readUInt32LE(offset) !== 0x04034b50) throw new Error("Zip local file header is unreadable");
+  const fileNameLength = buffer.readUInt16LE(offset + 26);
+  const extraLength = buffer.readUInt16LE(offset + 28);
+  const start = offset + 30 + fileNameLength + extraLength;
+  const compressed = buffer.subarray(start, start + entry.compressedSize);
+  if (entry.method === 0) return compressed;
+  if (entry.method === 8) return inflateRawSync(compressed);
+  throw new Error(`Zip compression method ${entry.method} is not supported`);
+}
+
+async function readZipBuffer(server, zipPath) {
+  const cleanPath = cleanRelativePath(zipPath);
+  if (extname(cleanPath).toLowerCase() !== ".zip") throw new Error("Select a .zip file");
+  const fullPath = safeServerPath(server, cleanPath);
+  const fileStat = await stat(fullPath);
+  if (fileStat.isDirectory()) throw new Error("Select a zip file, not a folder");
+  if (fileStat.size > 80 * 1024 * 1024) throw new Error("Zip file is too large to open here");
+  return { cleanPath, buffer: await readFile(fullPath) };
+}
+
+function parseVariables(text) {
+  return String(text || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .reduce((vars, line) => {
+      const index = line.indexOf("=");
+      if (index > -1) vars[line.slice(0, index).trim()] = line.slice(index + 1).trim();
+      return vars;
+    }, {});
+}
+
+function normalizeLoader(loader) {
+  return String(loader || "").trim().toLowerCase();
+}
+
+function normalizeContentType(type) {
+  return String(type || "plugin").trim().toLowerCase() === "mod" ? "mod" : "plugin";
+}
+
+async function fetchJson(url) {
+  const client = url.startsWith("https:") ? httpsRequest : httpRequest;
+  return new Promise((resolve, reject) => {
+    const req = client(url, {
+      headers: {
+        "accept": "application/json",
+        "user-agent": "HeronPanel/1.0 (plugin search)"
+      }
+    }, (res) => {
+      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        fetchJson(res.headers.location).then(resolve, reject);
+        return;
+      }
+      const chunks = [];
+      res.on("data", (chunk) => chunks.push(chunk));
+      res.on("end", () => {
+        const text = Buffer.concat(chunks).toString("utf8");
+        if (!res.statusCode || res.statusCode < 200 || res.statusCode > 299) {
+          reject(new Error(`Search API failed with ${res.statusCode}: ${text.slice(0, 120)}`));
+          return;
+        }
+        try {
+          resolve(JSON.parse(text));
+        } catch (error) {
+          reject(new Error("Search API returned invalid JSON"));
+        }
+      });
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+async function searchModrinth({ query, type, loader, gameVersion, limit }) {
+  const facets = [type === "plugin" ? ["project_type:plugin", "project_type:mod"] : [`project_type:${type}`]];
+  if (loader) facets.push([`categories:${loader}`]);
+  if (gameVersion) facets.push([`versions:${gameVersion}`]);
+  const url = new URL("https://api.modrinth.com/v2/search");
+  url.searchParams.set("query", query);
+  url.searchParams.set("limit", String(limit));
+  url.searchParams.set("index", "downloads");
+  url.searchParams.set("facets", JSON.stringify(facets));
+  const payload = await fetchJson(url.toString());
+  return (payload.hits || []).map((hit) => ({
+    source: "modrinth",
+    projectId: hit.project_id,
+    slug: hit.slug,
+    type,
+    projectType: hit.project_type,
+    name: hit.title,
+    version: hit.latest_version || "latest",
+    description: hit.description || "",
+    author: hit.author || "Modrinth",
+    downloads: hit.downloads || 0,
+    iconUrl: hit.icon_url || "",
+    loaders: hit.categories || [],
+    gameVersions: hit.versions || [],
+    sourceUrl: `https://modrinth.com/${hit.project_type}/${hit.slug}`
+  }));
+}
+
+async function searchSpiget({ query, limit }) {
+  const url = `https://api.spiget.org/v2/search/resources/${encodeURIComponent(query)}?field=name&size=${limit}`;
+  const payload = await fetchJson(url);
+  return (Array.isArray(payload) ? payload : []).map((item) => ({
+    source: "spiget",
+    projectId: String(item.id),
+    slug: String(item.id),
+    type: "plugin",
+    name: item.name || `Spigot resource ${item.id}`,
+    version: item.version?.name || item.tag || "latest",
+    description: item.tag || "Spigot/Bukkit resource",
+    author: item.author?.name || "SpigotMC",
+    downloads: item.downloads || 0,
+    iconUrl: item.icon?.url ? `https://www.spigotmc.org/${item.icon.url.replace(/^\/+/, "")}` : "",
+    loaders: ["spigot", "bukkit", "paper"],
+    gameVersions: item.testedVersions || [],
+    downloadUrl: `https://api.spiget.org/v2/resources/${item.id}/download`,
+    sourceUrl: `https://www.spigotmc.org/resources/${item.id}/`
+  }));
+}
+
+async function resolveModrinthDownload(item, loader, gameVersion) {
+  const url = new URL(`https://api.modrinth.com/v2/project/${encodeURIComponent(item.projectId)}/version`);
+  if (loader) url.searchParams.set("loaders", JSON.stringify([loader]));
+  if (gameVersion) url.searchParams.set("game_versions", JSON.stringify([gameVersion]));
+  const versions = await fetchJson(url.toString());
+  const version = Array.isArray(versions) ? versions.find((entry) => entry.files?.length) : null;
+  if (!version) throw new Error("No downloadable version found for this loader/version");
+  const file = version.files.find((entry) => entry.primary) || version.files[0];
+  return {
+    url: file.url,
+    version: version.version_number || item.version || "latest",
+    fileName: file.filename || `${slug(item.name)}.jar`
+  };
+}
+
+async function installExternalContent(server, body) {
+  const type = normalizeContentType(body.type);
+  const folder = type === "plugin" ? "plugins" : "mods";
+  const targetFolder = join(serverDir(server), folder);
+  await mkdir(targetFolder, { recursive: true });
+  let download = {
+    url: body.downloadUrl,
+    version: body.version || "latest",
+    fileName: `${slug(body.name)}-${body.version || "latest"}.jar`
+  };
+  if (body.source === "modrinth") {
+    download = await resolveModrinthDownload(body, normalizeLoader(body.loader), body.gameVersion);
+  }
+  if (!download.url) throw new Error("No download URL available for this result");
+  const safeName = download.fileName.endsWith(".jar") ? download.fileName : `${download.fileName}.jar`;
+  const targetPath = join(targetFolder, safeName.replace(/[<>:"/\\|?*]/g, "-"));
+  await downloadFile(download.url, targetPath);
+  const list = type === "plugin" ? server.plugins : server.mods;
+  if (!list.includes(body.name)) list.push(body.name);
+  await refreshServerFileList(server);
+  addLog(server, `${body.name} installed from ${body.source} into ${folder}/${safeName}`);
+  return { name: body.name, version: download.version, fileName: safeName };
+}
+
+function templateCommand(server) {
+  return server.startup.command
+    .replaceAll("{{SERVER_ID}}", server.id)
+    .replaceAll("{{SERVER_NAME}}", server.name)
+    .replaceAll("{{SERVER_MEMORY}}", String(server.ram * 1024))
+    .replaceAll("{{SERVER_PORT}}", server.ports[0]);
+}
+
+async function startServer(server) {
+  if (processes.has(server.id)) return;
+  const command = templateCommand(server);
+  const child = spawn(command, {
+    cwd: serverDir(server),
+    shell: true,
+    windowsHide: true,
+    env: {
+      ...process.env,
+      SERVER_ID: server.id,
+      SERVER_NAME: server.name,
+      SERVER_PORT: server.ports[0],
+      SERVER_MEMORY: String(server.ram * 1024)
+    }
+  });
+  processes.set(server.id, child);
+  server.status = "running";
+  addLog(server, `Process started: ${command}`);
+  child.stdout.on("data", (chunk) => {
+    addLog(server, String(chunk).trim());
+    persist().catch(console.error);
+  });
+  child.stderr.on("data", (chunk) => {
+    addLog(server, `stderr: ${String(chunk).trim()}`);
+    persist().catch(console.error);
+  });
+  child.on("exit", (code) => {
+    processes.delete(server.id);
+    if (server.status !== "stopped") server.status = "stopped";
+    addLog(server, `Process exited with code ${code ?? "unknown"}.`);
+    persist().catch(console.error);
+  });
+}
+
+function stopServer(server) {
+  const child = processes.get(server.id);
+  if (child) {
+    child.kill();
+    processes.delete(server.id);
+  }
+  server.status = "stopped";
+  addLog(server, "Stop signal sent.");
+}
+
+async function createBackup(server, name = "") {
+  await refreshServerFileList(server);
+  const backupId = uid("bk");
+  const label = name || `${slug(server.name)}-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+  const target = join(backupRoot, server.id, backupId);
+  await copyDir(serverDir(server), target);
+  const backup = {
+    id: backupId,
+    name: label,
+    size: `${server.files.length} files`,
+    createdAt: new Date().toISOString(),
+    path: relative(root, target)
+  };
+  server.backups.unshift(backup);
+  addLog(server, `Backup snapshot created: ${label}`);
+  return backup;
+}
+
+async function copyDir(from, to) {
+  await mkdir(to, { recursive: true });
+  const entries = await readdir(from, { withFileTypes: true });
+  for (const entry of entries) {
+    const src = join(from, entry.name);
+    const dest = join(to, entry.name);
+    if (entry.isDirectory()) await copyDir(src, dest);
+    else await copyFile(src, dest);
+  }
+}
+
+async function installContent(server, type, itemId) {
+  const catalog = type === "plugin" ? state.pluginCatalog : state.modCatalog;
+  const item = catalog.find((entry) => entry.id === itemId);
+  if (!item) throw new Error("Catalog item not found");
+  const folder = type === "plugin" ? "plugins" : "mods";
+  const targetFolder = join(serverDir(server), folder);
+  await mkdir(targetFolder, { recursive: true });
+  const targetName = `${slug(item.name)}-${item.version}.jar`;
+  const targetPath = join(targetFolder, targetName);
+  if (item.sourceUrl) {
+    await downloadFile(item.sourceUrl, targetPath);
+  } else {
+    await writeFile(targetPath, `HeronPanel catalog marker\nName: ${item.name}\nVersion: ${item.version}\nAdd a sourceUrl in Admin catalog for automatic real jar downloads.\n`);
+  }
+  const list = type === "plugin" ? server.plugins : server.mods;
+  if (!list.includes(item.name)) list.push(item.name);
+  await refreshServerFileList(server);
+  addLog(server, `${item.name} installed into ${folder}/${targetName}`);
+  return item;
+}
+
+async function writeServerIcon(server, dataUrl) {
+  const match = String(dataUrl || "").match(/^data:image\/png;base64,([a-zA-Z0-9+/=]+)$/);
+  if (!match) throw new Error("Use a PNG image for server icon");
+  const buffer = Buffer.from(match[1], "base64");
+  if (buffer.length > 1024 * 1024) throw new Error("Server icon must be under 1 MB");
+  await writeFile(join(serverDir(server), "server-icon.png"), buffer);
+}
+
+async function downloadFile(url, targetPath) {
+  const client = url.startsWith("https:") ? httpsRequest : httpRequest;
+  await new Promise((resolve, reject) => {
+    const req = client(url, (res) => {
+      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        downloadFile(res.headers.location, targetPath).then(resolve, reject);
+        return;
+      }
+      if (res.statusCode !== 200) {
+        reject(new Error(`Download failed with ${res.statusCode}`));
+        return;
+      }
+      const chunks = [];
+      res.on("data", (chunk) => chunks.push(chunk));
+      res.on("end", async () => {
+        await writeFile(targetPath, Buffer.concat(chunks));
+        resolve();
+      });
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+function findServer(id) {
+  const server = state.servers.find((item) => item.id === id);
+  if (!server) throw new Error("Server not found");
+  return server;
+}
+
+function readBody(request) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => {
+      const text = Buffer.concat(chunks).toString("utf8");
+      if (!text) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(text));
+      } catch (error) {
+        reject(new Error("Invalid JSON body"));
+      }
+    });
+    request.on("error", reject);
+  });
+}
+
+function sendJson(response, payload, status = 200) {
+  response.writeHead(status, { "content-type": "application/json; charset=utf-8" });
+  response.end(JSON.stringify(payload));
+}
+
+function sendError(response, error, status = 400) {
+  sendJson(response, { ok: false, error: error.message || String(error) }, error.status || status);
+}
+
+async function handleApi(request, response, url) {
+  const path = url.pathname;
+  try {
+    if (request.method === "POST" && path === "/api/auth/login") {
+      const body = await readBody(request);
+      const identifier = String(body.identifier || "").trim().toLowerCase();
+      const user = findUserByLogin(identifier);
+      if (!user || !verifyPassword(user, body.password)) {
+        const error = new Error("Invalid login details");
+        error.status = 401;
+        throw error;
+      }
+      const token = randomUUID();
+      sessions.set(token, user.id);
+      sendJson(response, { ok: true, token, user: sanitizeUser(user) });
+      return;
+    }
+
+    if (request.method === "POST" && path === "/api/auth/register") {
+      const body = await readBody(request);
+      const username = String(body.username || "").trim();
+      const email = String(body.email || "").trim().toLowerCase();
+      const password = String(body.password || "");
+      if (username.length < 3) throw new Error("Username must be at least 3 characters");
+      if (!email.includes("@")) throw new Error("Valid email required");
+      if (password.length < 6) throw new Error("Password must be at least 6 characters");
+      if (loginIdentityTaken(username) || loginIdentityTaken(email)) {
+        throw new Error("User already exists");
+      }
+      const user = {
+        id: uid("usr"),
+        username,
+        email,
+        role: "user",
+        passwordHash: hashSecret(password),
+        backupPasswordHash: "",
+        loginAliases: [],
+        createdAt: new Date().toISOString()
+      };
+      state.users.push(user);
+      await persist();
+      const token = randomUUID();
+      sessions.set(token, user.id);
+      sendJson(response, { ok: true, token, user: sanitizeUser(user) });
+      return;
+    }
+
+    if (request.method === "GET" && path === "/api/auth/me") {
+      const user = authenticate(request);
+      sendJson(response, { ok: true, user: sanitizeUser(user) });
+      return;
+    }
+
+    if (request.method === "POST" && path === "/api/auth/logout") {
+      const header = request.headers.authorization || "";
+      const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+      sessions.delete(token);
+      sendJson(response, { ok: true });
+      return;
+    }
+
+    const currentUser = authenticate(request);
+
+    if (request.method === "POST" && path === "/api/account/settings") {
+      const body = await readBody(request);
+      const username = String(body.username || "").trim();
+      const email = String(body.email || "").trim().toLowerCase();
+      const currentPassword = String(body.currentPassword || "");
+      const newPassword = String(body.newPassword || "");
+      if (username.length < 3) throw new Error("Username must be at least 3 characters");
+      if (!email.includes("@")) throw new Error("Valid email required");
+      if (loginIdentityTaken(username, currentUser.id) || loginIdentityTaken(email, currentUser.id)) {
+        throw new Error("Username or email already used");
+      }
+      if (newPassword) {
+        if (newPassword.length < 6) throw new Error("New password must be at least 6 characters");
+        if (!verifyPassword(currentUser, currentPassword)) {
+          const error = new Error("Current password is wrong");
+          error.status = 401;
+          throw error;
+        }
+        currentUser.passwordHash = hashSecret(newPassword);
+      }
+      currentUser.username = username;
+      currentUser.email = email;
+      await persist();
+      sendJson(response, { ok: true, state: publicState(), user: sanitizeUser(currentUser) });
+      return;
+    }
+
+    if (request.method === "GET" && path === "/api/state") {
+      sendJson(response, { ok: true, state: publicState(), user: sanitizeUser(currentUser) });
+      return;
+    }
+
+    if (request.method === "GET" && path === "/api/export") {
+      response.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+        "content-disposition": `attachment; filename="${slug(state.settings.panelName)}-backup.json"`
+      });
+      response.end(JSON.stringify(publicState(), null, 2));
+      return;
+    }
+
+    if (request.method === "GET" && path === "/api/catalog/search") {
+      const query = String(url.searchParams.get("query") || "").trim();
+      if (!query) throw new Error("Search query required");
+      const type = normalizeContentType(url.searchParams.get("type"));
+      const loader = normalizeLoader(url.searchParams.get("loader"));
+      const source = String(url.searchParams.get("source") || "all").toLowerCase();
+      const gameVersion = String(url.searchParams.get("gameVersion") || "").trim();
+      const limit = Math.min(24, Math.max(1, Number(url.searchParams.get("limit") || 12)));
+      const searches = [];
+      if (source === "all" || source === "modrinth") searches.push(searchModrinth({ query, type, loader, gameVersion, limit }));
+      if (type === "plugin" && (source === "all" || source === "spiget")) searches.push(searchSpiget({ query, limit }));
+      const settled = await Promise.allSettled(searches);
+      const results = settled.flatMap((entry) => entry.status === "fulfilled" ? entry.value : []);
+      const errors = settled.filter((entry) => entry.status === "rejected").map((entry) => entry.reason.message);
+      sendJson(response, { ok: true, results: results.slice(0, limit * 2), errors });
+      return;
+    }
+
+    if (request.method === "POST" && path === "/api/click") {
+      state.clickProgress += 1;
+      const target = Math.max(1, Number(state.settings.clickTarget));
+      if (state.clickProgress >= target) {
+        state.clickProgress -= target;
+        state.coins += Number(state.settings.clickReward);
+        addActivity(`Coin reward claimed: +${state.settings.clickReward} coins.`);
+      }
+      await persist();
+      sendJson(response, { ok: true, state: publicState() });
+      return;
+    }
+
+    if (request.method === "POST" && path === "/api/marketplace/server-limit") {
+      const cost = 1000;
+      if (Number(state.coins || 0) < cost) throw new Error("Not enough coins for server limit upgrade");
+      state.coins -= cost;
+      state.settings.maxServers = Number(state.settings.maxServers || 0) + 1;
+      addActivity(`Marketplace purchase: +1 server limit for ${cost} coins.`);
+      await persist();
+      sendJson(response, { ok: true, cost, state: publicState() });
+      return;
+    }
+
+    if (request.method === "POST" && path === "/api/servers") {
+      const body = await readBody(request);
+      if (state.servers.length >= Number(state.settings.maxServers)) throw new Error("Server limit reached");
+      if (state.coins < Number(state.settings.serverCost)) throw new Error("Not enough coins");
+      const server = await createServerRecord(body, true);
+      state.servers.unshift(server);
+      state.selectedServerId = server.id;
+      addActivity(`${server.name} created with ${server.provider} adapter.`);
+      if (body.autoStart) await startServer(server);
+      await persist();
+      sendJson(response, { ok: true, state: publicState() });
+      return;
+    }
+
+    const powerMatch = path.match(/^\/api\/servers\/([^/]+)\/power$/);
+    if (request.method === "POST" && powerMatch) {
+      const server = findServer(powerMatch[1]);
+      const body = await readBody(request);
+      const action = body.action || "restart";
+      if (action === "start") await startServer(server);
+      if (action === "stop" || action === "kill") stopServer(server);
+      if (action === "restart") {
+        stopServer(server);
+        await startServer(server);
+      }
+      addActivity(`${server.name}: ${action}.`);
+      await persist();
+      sendJson(response, { ok: true, state: publicState() });
+      return;
+    }
+
+    const commandMatch = path.match(/^\/api\/servers\/([^/]+)\/command$/);
+    if (request.method === "POST" && commandMatch) {
+      const server = findServer(commandMatch[1]);
+      const body = await readBody(request);
+      const command = String(body.command || "").trim();
+      if (!command) throw new Error("Command required");
+      const child = processes.get(server.id);
+      if (child && child.stdin.writable) {
+        child.stdin.write(`${command}\n`);
+        addLog(server, `> ${command}`);
+      } else {
+        addLog(server, `Queued command while offline: ${command}`);
+      }
+      addActivity(`Command sent to ${server.name}: ${command}`);
+      await persist();
+      sendJson(response, { ok: true, state: publicState() });
+      return;
+    }
+
+    const identityMatch = path.match(/^\/api\/servers\/([^/]+)\/identity$/);
+    if (request.method === "POST" && identityMatch) {
+      const server = findServer(identityMatch[1]);
+      const body = await readBody(request);
+      server.motd = String(body.motd || server.motd || state.settings.motd).trim();
+      if (body.iconDataUrl) {
+        await writeServerIcon(server, body.iconDataUrl);
+        server.icon = body.iconDataUrl;
+      } else if (body.iconUrl) {
+        server.icon = String(body.iconUrl).trim();
+      }
+      await ensureServerFiles(server);
+      await refreshServerFileList(server);
+      addLog(server, "Server icon and MOTD updated.");
+      addActivity(`${server.name}: icon and MOTD updated.`);
+      await persist();
+      sendJson(response, { ok: true, state: publicState() });
+      return;
+    }
+
+    const filesMatch = path.match(/^\/api\/servers\/([^/]+)\/files$/);
+    if (request.method === "GET" && filesMatch) {
+      const server = findServer(filesMatch[1]);
+      const folderPath = cleanOptionalPath(url.searchParams.get("path"));
+      const files = await listDirectory(server, folderPath);
+      sendJson(response, { ok: true, path: folderPath, files });
+      return;
+    }
+
+    const fileMatch = path.match(/^\/api\/servers\/([^/]+)\/file$/);
+    if (request.method === "GET" && fileMatch) {
+      const server = findServer(fileMatch[1]);
+      const filePath = cleanRelativePath(url.searchParams.get("path"));
+      const fullPath = safeServerPath(server, filePath);
+      const fileStat = await stat(fullPath);
+      if (fileStat.isDirectory()) throw new Error("Cannot open a folder as text");
+      const content = await readFile(fullPath, "utf8");
+      sendJson(response, { ok: true, path: filePath, content, size: fileStat.size });
+      return;
+    }
+
+    if (request.method === "POST" && fileMatch) {
+      const server = findServer(fileMatch[1]);
+      const body = await readBody(request);
+      const filePath = cleanRelativePath(body.path);
+      const fullPath = safeServerPath(server, filePath);
+      await mkdir(dirname(fullPath), { recursive: true });
+      await writeFile(fullPath, String(body.content ?? ""));
+      await refreshServerFileList(server);
+      addLog(server, `File saved: ${filePath}`);
+      addActivity(`${server.name}: saved ${filePath}.`);
+      await persist();
+      sendJson(response, { ok: true, state: publicState() });
+      return;
+    }
+
+    const folderMatch = path.match(/^\/api\/servers\/([^/]+)\/folder$/);
+    if (request.method === "POST" && folderMatch) {
+      const server = findServer(folderMatch[1]);
+      const body = await readBody(request);
+      const folderPath = cleanRelativePath(body.path);
+      await mkdir(safeServerPath(server, folderPath), { recursive: true });
+      await refreshServerFileList(server);
+      addLog(server, `Folder created: ${folderPath}`);
+      addActivity(`${server.name}: folder created ${folderPath}.`);
+      await persist();
+      sendJson(response, { ok: true, state: publicState() });
+      return;
+    }
+
+    const uploadMatch = path.match(/^\/api\/servers\/([^/]+)\/upload$/);
+    if (request.method === "POST" && uploadMatch) {
+      const server = findServer(uploadMatch[1]);
+      const body = await readBody(request);
+      const targetPath = cleanOptionalPath(body.targetPath);
+      const files = Array.isArray(body.files) ? body.files.slice(0, 120) : [];
+      if (!files.length) throw new Error("No files selected");
+      let totalBytes = 0;
+      for (const file of files) {
+        const filePath = cleanRelativePath(file.relativePath || file.name);
+        const buffer = decodeDataUrl(file.dataUrl);
+        totalBytes += buffer.length;
+        if (totalBytes > 60 * 1024 * 1024) throw new Error("Upload batch must stay under 60 MB");
+        const target = safeServerPath(server, targetPath === "." ? filePath : `${targetPath}/${filePath}`);
+        await mkdir(dirname(target), { recursive: true });
+        await writeFile(target, buffer);
+      }
+      await refreshServerFileList(server);
+      addLog(server, `Uploaded ${files.length} file${files.length === 1 ? "" : "s"} into ${targetPath}`);
+      addActivity(`${server.name}: uploaded ${files.length} file${files.length === 1 ? "" : "s"}.`);
+      await persist();
+      sendJson(response, { ok: true, state: publicState() });
+      return;
+    }
+
+    const zipListMatch = path.match(/^\/api\/servers\/([^/]+)\/zip$/);
+    if (request.method === "GET" && zipListMatch) {
+      const server = findServer(zipListMatch[1]);
+      const { cleanPath, buffer } = await readZipBuffer(server, url.searchParams.get("path"));
+      const dir = String(url.searchParams.get("dir") || "").replaceAll("\\", "/").replace(/^\/+|\/+$/g, "");
+      const entries = listZipDirectory(zipEntries(buffer), dir);
+      sendJson(response, { ok: true, path: cleanPath, dir, entries });
+      return;
+    }
+
+    const zipFileMatch = path.match(/^\/api\/servers\/([^/]+)\/zip\/file$/);
+    if (request.method === "GET" && zipFileMatch) {
+      const server = findServer(zipFileMatch[1]);
+      const { cleanPath, buffer } = await readZipBuffer(server, url.searchParams.get("path"));
+      const entryPath = cleanZipEntryPath(url.searchParams.get("entry"));
+      const entry = zipEntries(buffer).find((item) => item.name === entryPath && !item.directory);
+      if (!entry) throw new Error("Zip entry not found");
+      if (entry.size > 2 * 1024 * 1024) throw new Error("Zip preview supports files under 2 MB");
+      const content = readZipEntry(buffer, entry).toString("utf8");
+      sendJson(response, { ok: true, path: cleanPath, entry: entryPath, content, size: entry.size });
+      return;
+    }
+
+    const zipExtractMatch = path.match(/^\/api\/servers\/([^/]+)\/zip\/extract$/);
+    if (request.method === "POST" && zipExtractMatch) {
+      const server = findServer(zipExtractMatch[1]);
+      const body = await readBody(request);
+      const { cleanPath, buffer } = await readZipBuffer(server, body.path);
+      const targetPath = cleanOptionalPath(body.targetPath || `${cleanPath.replace(/\.zip$/i, "")}-extracted`);
+      const entryPrefix = String(body.entry || "").replaceAll("\\", "/").replace(/^\/+/, "");
+      const entries = zipEntries(buffer).filter((entry) => !entry.directory && (!entryPrefix || entry.name === entryPrefix || entry.name.startsWith(entryPrefix)));
+      if (!entries.length) throw new Error("No zip files found to extract");
+      for (const entry of entries.slice(0, 500)) {
+        const entryPath = cleanZipEntryPath(entry.name);
+        const target = safeServerPath(server, targetPath === "." ? entryPath : `${targetPath}/${entryPath}`);
+        await mkdir(dirname(target), { recursive: true });
+        await writeFile(target, readZipEntry(buffer, entry));
+      }
+      await refreshServerFileList(server);
+      addLog(server, `Extracted ${entries.length} zip item${entries.length === 1 ? "" : "s"} from ${cleanPath}`);
+      addActivity(`${server.name}: extracted ${cleanPath}.`);
+      await persist();
+      sendJson(response, { ok: true, state: publicState() });
+      return;
+    }
+
+    const fileDeleteMatch = path.match(/^\/api\/servers\/([^/]+)\/file\/delete$/);
+    if (request.method === "POST" && fileDeleteMatch) {
+      const server = findServer(fileDeleteMatch[1]);
+      const body = await readBody(request);
+      const filePath = cleanRelativePath(body.path);
+      await rm(safeServerPath(server, filePath), { recursive: true, force: true });
+      await refreshServerFileList(server);
+      addLog(server, `Deleted: ${filePath}`);
+      addActivity(`${server.name}: deleted ${filePath}.`);
+      await persist();
+      sendJson(response, { ok: true, state: publicState() });
+      return;
+    }
+
+    const fileRenameMatch = path.match(/^\/api\/servers\/([^/]+)\/file\/rename$/);
+    if (request.method === "POST" && fileRenameMatch) {
+      const server = findServer(fileRenameMatch[1]);
+      const body = await readBody(request);
+      const from = cleanRelativePath(body.from);
+      const to = cleanRelativePath(body.to);
+      const target = safeServerPath(server, to);
+      await mkdir(dirname(target), { recursive: true });
+      await rename(safeServerPath(server, from), target);
+      await refreshServerFileList(server);
+      addLog(server, `Renamed ${from} to ${to}`);
+      addActivity(`${server.name}: renamed ${from}.`);
+      await persist();
+      sendJson(response, { ok: true, state: publicState() });
+      return;
+    }
+
+    const settingsMatch = path.match(/^\/api\/servers\/([^/]+)\/settings$/);
+    if (request.method === "POST" && settingsMatch) {
+      const server = findServer(settingsMatch[1]);
+      const body = await readBody(request);
+      server.name = String(body.name || server.name).trim();
+      server.motd = String(body.motd || server.motd || state.settings.motd).trim();
+      server.ram = Number(body.ram || server.ram);
+      server.cpu = Number(body.cpu || server.cpu);
+      server.disk = Number(body.disk || server.disk);
+      server.options = {
+        ...server.options,
+        slots: Number(body.slots || server.options.slots),
+        gamemode: body.gamemode || server.options.gamemode,
+        difficulty: body.difficulty || server.options.difficulty,
+        whitelist: Boolean(body.whitelist),
+        pvp: Boolean(body.pvp),
+        commandBlocks: Boolean(body.commandBlocks),
+        cracked: Boolean(body.cracked),
+        fly: Boolean(body.fly),
+        monsters: Boolean(body.monsters),
+        animals: Boolean(body.animals),
+        nether: Boolean(body.nether),
+        spawnProtection: Number(body.spawnProtection ?? server.options.spawnProtection),
+        timezone: body.timezone || server.options.timezone
+      };
+      server.startup.variables.SERVER_NAME = server.name;
+      server.startup.variables.SERVER_MEMORY = String(server.ram * 1024);
+      await ensureServerFiles(server);
+      await refreshServerFileList(server);
+      addLog(server, "Server settings updated from panel.");
+      addActivity(`${server.name}: settings updated.`);
+      await persist();
+      sendJson(response, { ok: true, state: publicState() });
+      return;
+    }
+
+    const startupMatch = path.match(/^\/api\/servers\/([^/]+)\/startup$/);
+    if (request.method === "POST" && startupMatch) {
+      const server = findServer(startupMatch[1]);
+      const body = await readBody(request);
+      server.startup.command = String(body.command || server.startup.command).trim();
+      server.startup.image = String(body.image || server.startup.image).trim();
+      server.startup.variables = {
+        ...server.startup.variables,
+        ...parseVariables(body.variablesText)
+      };
+      addLog(server, "Startup command and variables updated.");
+      addActivity(`${server.name}: startup updated.`);
+      await persist();
+      sendJson(response, { ok: true, state: publicState() });
+      return;
+    }
+
+    const networkMatch = path.match(/^\/api\/servers\/([^/]+)\/network$/);
+    if (request.method === "POST" && networkMatch) {
+      const server = findServer(networkMatch[1]);
+      const body = await readBody(request);
+      const port = String(body.port || "").trim();
+      if (!/^\d{2,5}$/.test(port)) throw new Error("Valid port required");
+      if (!server.ports.includes(port)) server.ports.push(port);
+      if (body.primary) server.allocation = `127.0.0.1:${port}`;
+      server.startup.variables.SERVER_PORT = server.ports[0];
+      addLog(server, `Port added: ${port}`);
+      addActivity(`${server.name}: port ${port} added.`);
+      await persist();
+      sendJson(response, { ok: true, state: publicState() });
+      return;
+    }
+
+    const databaseMatch = path.match(/^\/api\/servers\/([^/]+)\/databases$/);
+    if (request.method === "POST" && databaseMatch) {
+      const server = findServer(databaseMatch[1]);
+      const body = await readBody(request);
+      const db = {
+        id: uid("db"),
+        name: String(body.name || `${slug(server.name).replaceAll("-", "_")}_db`).trim(),
+        user: String(body.user || `${slug(server.name).replaceAll("-", "_")}_user`).trim(),
+        host: String(body.host || "localhost").trim()
+      };
+      server.databases.push(db);
+      addLog(server, `Database added: ${db.name}`);
+      addActivity(`${server.name}: database ${db.name} added.`);
+      await persist();
+      sendJson(response, { ok: true, state: publicState() });
+      return;
+    }
+
+    const scheduleMatch = path.match(/^\/api\/servers\/([^/]+)\/schedules$/);
+    if (request.method === "POST" && scheduleMatch) {
+      const server = findServer(scheduleMatch[1]);
+      const body = await readBody(request);
+      const schedule = {
+        id: uid("sch"),
+        name: String(body.name || "New schedule").trim(),
+        cron: String(body.cron || "0 4 * * *").trim(),
+        action: String(body.action || "restart").trim(),
+        active: body.active !== false
+      };
+      server.schedules.push(schedule);
+      addLog(server, `Schedule added: ${schedule.name}`);
+      addActivity(`${server.name}: schedule ${schedule.name} added.`);
+      await persist();
+      sendJson(response, { ok: true, state: publicState() });
+      return;
+    }
+
+    const subuserMatch = path.match(/^\/api\/servers\/([^/]+)\/subusers$/);
+    if (request.method === "POST" && subuserMatch) {
+      const server = findServer(subuserMatch[1]);
+      const body = await readBody(request);
+      const permissions = String(body.permissions || "Console, Files").split(",").map((item) => item.trim()).filter(Boolean);
+      const subuser = {
+        name: String(body.name || "staff").trim(),
+        role: String(body.role || "Staff").trim(),
+        permissions
+      };
+      server.subusers.push(subuser);
+      addLog(server, `Subuser added: ${subuser.name}`);
+      addActivity(`${server.name}: subuser ${subuser.name} added.`);
+      await persist();
+      sendJson(response, { ok: true, state: publicState() });
+      return;
+    }
+
+    const serverPlayerMatch = path.match(/^\/api\/servers\/([^/]+)\/players$/);
+    if (request.method === "POST" && serverPlayerMatch) {
+      const server = findServer(serverPlayerMatch[1]);
+      const body = await readBody(request);
+      const player = {
+        id: uid("p"),
+        name: String(body.name || "").trim(),
+        serverId: server.id,
+        role: String(body.role || "Member").trim(),
+        status: "offline",
+        ping: 0,
+        whitelisted: body.whitelisted !== false
+      };
+      if (!player.name) throw new Error("Player name required");
+      state.players.push(player);
+      await ensureServerFiles(server);
+      addLog(server, `Player added: ${player.name}`);
+      addActivity(`${server.name}: player ${player.name} added.`);
+      await persist();
+      sendJson(response, { ok: true, state: publicState() });
+      return;
+    }
+
+    const removeMatch = path.match(/^\/api\/servers\/([^/]+)\/remove$/);
+    if (request.method === "POST" && removeMatch) {
+      const server = findServer(removeMatch[1]);
+      const body = await readBody(request);
+      if (body.type === "port") {
+        server.ports = server.ports.filter((port) => port !== String(body.value));
+        if (!server.ports.length) server.ports.push("25565");
+        if (server.allocation.endsWith(`:${body.value}`)) server.allocation = `127.0.0.1:${server.ports[0]}`;
+      }
+      if (body.type === "database") server.databases = server.databases.filter((item) => item.id !== body.id);
+      if (body.type === "schedule") server.schedules = server.schedules.filter((item) => item.id !== body.id);
+      if (body.type === "subuser") server.subusers = server.subusers.filter((item) => item.name !== body.name);
+      addLog(server, `Removed ${body.type}: ${body.value || body.id || body.name}`);
+      addActivity(`${server.name}: removed ${body.type}.`);
+      await persist();
+      sendJson(response, { ok: true, state: publicState() });
+      return;
+    }
+
+    const backupMatch = path.match(/^\/api\/servers\/([^/]+)\/backup$/);
+    if (request.method === "POST" && backupMatch) {
+      const server = findServer(backupMatch[1]);
+      const body = await readBody(request);
+      const backup = await createBackup(server, body.name);
+      addActivity(`Backup created for ${server.name}.`);
+      await persist();
+      sendJson(response, { ok: true, backup, state: publicState() });
+      return;
+    }
+
+    const installMatch = path.match(/^\/api\/servers\/([^/]+)\/install$/);
+    if (request.method === "POST" && installMatch) {
+      const server = findServer(installMatch[1]);
+      const body = await readBody(request);
+      const item = await installContent(server, body.type, body.itemId);
+      addActivity(`${item.name} installed on ${server.name}.`);
+      await persist();
+      sendJson(response, { ok: true, item, state: publicState() });
+      return;
+    }
+
+    const installExternalMatch = path.match(/^\/api\/servers\/([^/]+)\/install-external$/);
+    if (request.method === "POST" && installExternalMatch) {
+      const server = findServer(installExternalMatch[1]);
+      const body = await readBody(request);
+      const item = await installExternalContent(server, body);
+      addActivity(`${item.name} installed from ${body.source} on ${server.name}.`);
+      await persist();
+      sendJson(response, { ok: true, item, state: publicState() });
+      return;
+    }
+
+    const playerMatch = path.match(/^\/api\/players\/([^/]+)\/action$/);
+    if (request.method === "POST" && playerMatch) {
+      const body = await readBody(request);
+      const player = state.players.find((item) => item.id === playerMatch[1]);
+      if (!player) throw new Error("Player not found");
+      const server = findServer(player.serverId);
+      if (body.action === "delete") {
+        state.players = state.players.filter((item) => item.id !== player.id);
+        await ensureServerFiles(server);
+        addLog(server, `Player removed: ${player.name}`);
+        addActivity(`Player ${player.name} removed.`);
+        await persist();
+        sendJson(response, { ok: true, state: publicState() });
+        return;
+      }
+      if (body.action === "op") player.role = player.role === "Operator" ? "Member" : "Operator";
+      if (body.action === "whitelist") player.whitelisted = !player.whitelisted;
+      if (body.action === "kick") player.status = "offline";
+      if (body.action === "ban") {
+        player.status = "banned";
+        player.whitelisted = false;
+      }
+      await ensureServerFiles(server);
+      addLog(server, `Player ${player.name}: ${body.action}`);
+      addActivity(`Player ${player.name}: ${body.action}.`);
+      await persist();
+      sendJson(response, { ok: true, state: publicState() });
+      return;
+    }
+
+    if (request.method === "POST" && path === "/api/broadcast") {
+      const body = await readBody(request);
+      const message = String(body.message || "").trim();
+      if (!message) throw new Error("Broadcast message required");
+      for (const server of state.servers) {
+        const child = processes.get(server.id);
+        if (child && child.stdin.writable) child.stdin.write(`say ${message}\n`);
+        addLog(server, `Broadcast: ${message}`);
+      }
+      addActivity(`Broadcast sent: ${message}`);
+      await persist();
+      sendJson(response, { ok: true, state: publicState() });
+      return;
+    }
+
+    if (request.method === "POST" && path === "/api/sync-players") {
+      syncPlayers();
+      for (const server of state.servers) await ensureServerFiles(server);
+      await persist();
+      sendJson(response, { ok: true, state: publicState() });
+      return;
+    }
+
+    if (request.method === "POST" && path === "/api/admin/settings") {
+      const body = await readBody(request);
+      state.settings = {
+        ...state.settings,
+        ...body,
+        providers: { ...state.settings.providers, ...(body.providers || {}) }
+      };
+      if (!Object.values(state.settings.providers).some(Boolean)) state.settings.providers.local = true;
+      addActivity("Admin settings saved.");
+      await persist();
+      sendJson(response, { ok: true, state: publicState() });
+      return;
+    }
+
+    if (request.method === "POST" && path === "/api/catalog") {
+      const body = await readBody(request);
+      const item = {
+        id: uid(body.type === "mod" ? "mod" : "pl"),
+        name: String(body.name || "").trim(),
+        version: String(body.version || "1.0.0").trim(),
+        description: String(body.description || "").trim(),
+        icon: String(body.icon || (body.type === "mod" ? "code" : "package")).trim(),
+        sourceUrl: String(body.sourceUrl || "").trim()
+      };
+      if (!item.name) throw new Error("Name required");
+      if (body.type === "mod") state.modCatalog.unshift(item);
+      else state.pluginCatalog.unshift(item);
+      addActivity(`Catalog item added: ${item.name}.`);
+      await persist();
+      sendJson(response, { ok: true, state: publicState() });
+      return;
+    }
+
+    if (request.method === "POST" && path === "/api/reset") {
+      const exits = [];
+      for (const child of processes.values()) {
+        exits.push(new Promise((resolve) => {
+          child.once("exit", resolve);
+          child.kill();
+          setTimeout(resolve, 600);
+        }));
+      }
+      await Promise.all(exits);
+      processes.clear();
+      await rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+      await loadState();
+      sendJson(response, { ok: true, state: publicState() });
+      return;
+    }
+
+    sendError(response, new Error("API route not found"), 404);
+  } catch (error) {
+    sendError(response, error);
+  }
+}
+
+function syncPlayers() {
+  const server = state.servers.find((item) => item.id === state.selectedServerId) || state.servers[0];
+  if (!server) return;
+  const names = ["Kabir", "Meera", "Dev", "Ishan", "Anaya", "Riya"];
+  const existing = new Set(state.players.map((player) => player.name));
+  const next = names.find((name) => !existing.has(name));
+  if (next) {
+    state.players.push({
+      id: uid("p"),
+      name: next,
+      serverId: server.id,
+      role: "Member",
+      status: server.status === "running" ? "online" : "offline",
+      ping: server.status === "running" ? 30 + Math.floor(Math.random() * 80) : 0,
+      whitelisted: true
+    });
+    addActivity(`${next} synced to ${server.name}.`);
+  } else {
+    state.players = state.players.map((player) => {
+      const playerServer = state.servers.find((item) => item.id === player.serverId);
+      const online = playerServer?.status === "running" && player.status !== "banned";
+      return { ...player, status: online ? "online" : player.status === "banned" ? "banned" : "offline", ping: online ? 30 + Math.floor(Math.random() * 80) : 0 };
+    });
+    addActivity("Player status refreshed from managed servers.");
+  }
+}
+
+function resolveStatic(urlPath) {
+  const cleanPath = decodeURIComponent(urlPath.split("?")[0]);
+  const requested = cleanPath === "/" ? "/index.html" : cleanPath;
+  const fullPath = normalize(join(root, requested));
+  if (!fullPath.startsWith(root)) return null;
+  return fullPath;
+}
+
+function serveStatic(request, response, path) {
+  const fullPath = resolveStatic(path);
+  if (!fullPath || !existsSync(fullPath) || statSync(fullPath).isDirectory()) {
+    response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+    response.end("Not found");
+    return;
+  }
+  response.writeHead(200, {
+    "content-type": types[extname(fullPath)] || "application/octet-stream",
+    "cache-control": "no-store"
+  });
+  createReadStream(fullPath).pipe(response);
+}
+
+await loadState();
+
+createServer((request, response) => {
+  const url = new URL(request.url || "/", `http://${request.headers.host || "127.0.0.1"}`);
+  if (url.pathname.startsWith("/api/")) {
+    handleApi(request, response, url);
+    return;
+  }
+  serveStatic(request, response, url.pathname);
+}).listen(port, "127.0.0.1", () => {
+  console.log(`HeronPanel real backend running at http://127.0.0.1:${port}`);
+  console.log(`State database: ${statePath}`);
+});

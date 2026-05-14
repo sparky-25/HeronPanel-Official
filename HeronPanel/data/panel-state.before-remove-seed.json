@@ -1,0 +1,299 @@
+{
+  "coins": 225,
+  "clickProgress": 0,
+  "selectedServerId": "srv-63c4fe8e",
+  "activeDetailTab": "console",
+  "settings": {
+    "panelName": "HeronPanel",
+    "serverCost": 50,
+    "maxServers": 10,
+    "clickTarget": 100,
+    "clickReward": 50,
+    "primaryColor": "#19b7ff",
+    "accentColor": "#ff9d3d",
+    "motd": "Welcome to HeronPanel. Real backend, clean control.",
+    "providers": {
+      "local": true,
+      "pterodactyl": true,
+      "codesandbox": true,
+      "github": true,
+      "vps": true
+    }
+  },
+  "pluginCatalog": [
+    {
+      "icon": "shield",
+      "id": "pl-luckperms",
+      "name": "LuckPerms",
+      "version": "5.4",
+      "description": "Permissions and rank management.",
+      "sourceUrl": ""
+    },
+    {
+      "icon": "terminal",
+      "id": "pl-essentials",
+      "name": "EssentialsX",
+      "version": "2.21",
+      "description": "Homes, warps, economy, chat and moderation commands.",
+      "sourceUrl": ""
+    },
+    {
+      "icon": "settings",
+      "id": "pl-worldguard",
+      "name": "WorldGuard",
+      "version": "7.0",
+      "description": "Regions, flags and grief protection.",
+      "sourceUrl": ""
+    }
+  ],
+  "modCatalog": [
+    {
+      "icon": "activity",
+      "id": "mod-sodium",
+      "name": "Sodium",
+      "version": "0.6",
+      "description": "Fabric performance optimization.",
+      "sourceUrl": ""
+    },
+    {
+      "icon": "code",
+      "id": "mod-create",
+      "name": "Create",
+      "version": "0.5",
+      "description": "Mechanical automation gameplay mod.",
+      "sourceUrl": ""
+    },
+    {
+      "icon": "package",
+      "id": "mod-jei",
+      "name": "Just Enough Items",
+      "version": "17.3",
+      "description": "Recipe browser for modded servers.",
+      "sourceUrl": ""
+    }
+  ],
+  "servers": [
+    {
+      "icon": "assets/brand-logo.png",
+      "id": "srv-63c4fe8e",
+      "name": "SkyBlock Prime",
+      "egg": "Minecraft Java Paper",
+      "provider": "local",
+      "region": "India - Mumbai",
+      "runtime": "Java 21",
+      "status": "stopped",
+      "ram": 4,
+      "cpu": 150,
+      "disk": 25,
+      "allocation": "127.0.0.1:25565",
+      "ports": [
+        "25565",
+        "26565"
+      ],
+      "owner": "admin",
+      "createdAt": "2026-05-14T18:55:38.566Z",
+      "motd": "Welcome to HeronPanel. Real backend, clean control.",
+      "plugins": [],
+      "mods": [],
+      "backups": [],
+      "databases": [
+        {
+          "id": "db-f1725cac",
+          "name": "skyblock_prime_main",
+          "user": "skyblock_prime_user",
+          "host": "localhost"
+        }
+      ],
+      "schedules": [
+        {
+          "id": "sch-1054a263",
+          "name": "Daily restart",
+          "cron": "0 4 * * *",
+          "action": "restart",
+          "active": true
+        }
+      ],
+      "files": [
+        {
+          "name": "banned-players.json",
+          "type": "JSON",
+          "size": "1 KB"
+        },
+        {
+          "name": "config/",
+          "type": "Folder",
+          "size": "folder"
+        },
+        {
+          "name": "logs/",
+          "type": "Folder",
+          "size": "folder"
+        },
+        {
+          "name": "mods/",
+          "type": "Folder",
+          "size": "folder"
+        },
+        {
+          "name": "ops.json",
+          "type": "JSON",
+          "size": "1 KB"
+        },
+        {
+          "name": "plugins/",
+          "type": "Folder",
+          "size": "folder"
+        },
+        {
+          "name": "server.properties",
+          "type": "PROPERTIES",
+          "size": "1 KB"
+        },
+        {
+          "name": "whitelist.json",
+          "type": "JSON",
+          "size": "1 KB"
+        },
+        {
+          "name": "world/",
+          "type": "Folder",
+          "size": "folder"
+        }
+      ],
+      "options": {
+        "slots": 60,
+        "gamemode": "survival",
+        "difficulty": "normal",
+        "whitelist": true,
+        "pvp": true,
+        "commandBlocks": false,
+        "cracked": false,
+        "fly": false,
+        "monsters": true,
+        "animals": true,
+        "nether": true,
+        "spawnProtection": 16,
+        "timezone": "Asia/Kolkata"
+      },
+      "startup": {
+        "command": "node \"C:\\Users\\MIDNYS\\Desktop\\HeronPanel\\runtimes\\minecraft-local-server.mjs\" \"{{SERVER_ID}}\" \"{{SERVER_NAME}}\"",
+        "image": "local-node-runtime",
+        "variables": {
+          "SERVER_ID": "srv-63c4fe8e",
+          "SERVER_NAME": "SkyBlock Prime",
+          "SERVER_MEMORY": "4096",
+          "SERVER_PORT": "25565"
+        }
+      },
+      "subusers": [
+        {
+          "name": "owner",
+          "role": "Full access",
+          "permissions": [
+            "Start",
+            "Stop",
+            "Console",
+            "Files",
+            "Backups",
+            "Players"
+          ]
+        }
+      ],
+      "console": [
+        "[00:25:38] SkyBlock Prime filesystem created.",
+        "[00:25:38] Adapter selected: local.",
+        "[00:25:38] Use Start to launch the local managed process.",
+        "[01:56:22] Process started: node \"C:\\Users\\MIDNYS\\Desktop\\HeronPanel\\runtimes\\minecraft-local-server.mjs\" \"srv-63c4fe8e\" \"SkyBlock Prime\"",
+        "[01:56:22] Local managed runtime attached to SkyBlock Prime (srv-63c4fe8e).",
+        "[01:56:22] Ready for console commands. Replace startup.command with a real Minecraft command when your jar is present.",
+        "[01:56:37] heartbeat 1: SkyBlock Prime process alive",
+        "[01:56:52] heartbeat 2: SkyBlock Prime process alive",
+        "[01:57:07] heartbeat 3: SkyBlock Prime process alive",
+        "[01:57:22] heartbeat 4: SkyBlock Prime process alive",
+        "[01:57:37] heartbeat 5: SkyBlock Prime process alive",
+        "[01:57:52] heartbeat 6: SkyBlock Prime process alive",
+        "[01:58:00] Deleted: ops.json",
+        "[01:58:07] heartbeat 7: SkyBlock Prime process alive",
+        "[01:58:22] heartbeat 8: SkyBlock Prime process alive",
+        "[01:58:37] heartbeat 9: SkyBlock Prime process alive",
+        "[01:58:52] heartbeat 10: SkyBlock Prime process alive",
+        "[01:59:07] heartbeat 11: SkyBlock Prime process alive",
+        "[01:59:22] heartbeat 12: SkyBlock Prime process alive",
+        "[01:59:37] heartbeat 13: SkyBlock Prime process alive",
+        "[01:59:52] heartbeat 14: SkyBlock Prime process alive",
+        "[02:00:07] heartbeat 15: SkyBlock Prime process alive",
+        "[02:00:22] heartbeat 16: SkyBlock Prime process alive",
+        "[02:00:37] heartbeat 17: SkyBlock Prime process alive",
+        "[02:00:52] heartbeat 18: SkyBlock Prime process alive",
+        "[02:07:19] Uploaded 1 file into _smoke",
+        "[02:07:19] File saved: _smoke/hello.txt",
+        "[02:07:58] Deleted: _smoke",
+        "[02:07:58] Uploaded 1 file into _smoke",
+        "[02:07:58] File saved: _smoke/hello.txt",
+        "[02:07:58] Uploaded 1 file into _smoke",
+        "[02:07:58] Extracted 1 zip item from _smoke/sample.zip",
+        "[02:07:58] Deleted: _smoke",
+        "[02:08:28] Deleted: _smoke",
+        "[02:08:28] Uploaded 1 file into _smoke",
+        "[02:08:28] Uploaded 1 file into _smoke",
+        "[02:08:28] Deleted: _smoke",
+        "[02:13:48] Stop signal sent."
+      ]
+    }
+  ],
+  "players": [
+    {
+      "id": "p-5d1b07ce",
+      "name": "Aarav",
+      "serverId": "srv-63c4fe8e",
+      "role": "Owner",
+      "status": "offline",
+      "ping": 0,
+      "whitelisted": true
+    },
+    {
+      "id": "p-da96862b",
+      "name": "Nikhil",
+      "serverId": "srv-63c4fe8e",
+      "role": "Builder",
+      "status": "offline",
+      "ping": 0,
+      "whitelisted": true
+    }
+  ],
+  "users": [
+    {
+      "id": "usr-admin",
+      "username": "Admin25@GET",
+      "email": "admin88@gmail.com",
+      "role": "admin",
+      "passwordHash": "7a57d6b70466014591e877b4d75780eb62026b58c62c2981fd7ee72910796c0a",
+      "backupPasswordHash": "6b396fc6a7cf7d18fa232c08c0b7a36b417fc9618c9d512ce1e67d25dd696eb2",
+      "createdAt": "2026-05-14T19:16:50.814Z",
+      "loginAliases": [
+        "admin25@get",
+        "admin88@gmail.com"
+      ]
+    }
+  ],
+  "activity": [
+    "Coin reward claimed: +50 coins.",
+    "Coin reward claimed: +50 coins.",
+    "SkyBlock Prime: stop.",
+    "SkyBlock Prime: deleted _smoke.",
+    "SkyBlock Prime: uploaded 1 file.",
+    "SkyBlock Prime: uploaded 1 file.",
+    "SkyBlock Prime: deleted _smoke.",
+    "SkyBlock Prime: deleted _smoke.",
+    "SkyBlock Prime: extracted _smoke/sample.zip.",
+    "SkyBlock Prime: uploaded 1 file.",
+    "SkyBlock Prime: saved _smoke/hello.txt.",
+    "SkyBlock Prime: uploaded 1 file.",
+    "SkyBlock Prime: deleted _smoke.",
+    "SkyBlock Prime: saved _smoke/hello.txt.",
+    "SkyBlock Prime: uploaded 1 file.",
+    "SkyBlock Prime: deleted ops.json.",
+    "SkyBlock Prime: start.",
+    "Backend initialized. Panel state is stored in data/panel-state.json."
+  ]
+}

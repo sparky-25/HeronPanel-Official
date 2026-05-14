@@ -1,0 +1,123 @@
+{
+  "coins": 225,
+  "clickProgress": 0,
+  "selectedServerId": "",
+  "activeDetailTab": "console",
+  "settings": {
+    "panelName": "HeronPanel",
+    "serverCost": 50,
+    "maxServers": 10,
+    "clickTarget": 100,
+    "clickReward": 50,
+    "primaryColor": "#19b7ff",
+    "accentColor": "#ff9d3d",
+    "motd": "Welcome to HeronPanel. Real backend, clean control.",
+    "providers": {
+      "local": true,
+      "pterodactyl": true,
+      "codesandbox": true,
+      "github": true,
+      "vps": true
+    }
+  },
+  "pluginCatalog": [
+    {
+      "icon": "shield",
+      "id": "pl-luckperms",
+      "name": "LuckPerms",
+      "version": "5.4",
+      "description": "Permissions and rank management.",
+      "sourceUrl": ""
+    },
+    {
+      "icon": "terminal",
+      "id": "pl-essentials",
+      "name": "EssentialsX",
+      "version": "2.21",
+      "description": "Homes, warps, economy, chat and moderation commands.",
+      "sourceUrl": ""
+    },
+    {
+      "icon": "settings",
+      "id": "pl-worldguard",
+      "name": "WorldGuard",
+      "version": "7.0",
+      "description": "Regions, flags and grief protection.",
+      "sourceUrl": ""
+    }
+  ],
+  "modCatalog": [
+    {
+      "icon": "activity",
+      "id": "mod-sodium",
+      "name": "Sodium",
+      "version": "0.6",
+      "description": "Fabric performance optimization.",
+      "sourceUrl": ""
+    },
+    {
+      "icon": "code",
+      "id": "mod-create",
+      "name": "Create",
+      "version": "0.5",
+      "description": "Mechanical automation gameplay mod.",
+      "sourceUrl": ""
+    },
+    {
+      "icon": "package",
+      "id": "mod-jei",
+      "name": "Just Enough Items",
+      "version": "17.3",
+      "description": "Recipe browser for modded servers.",
+      "sourceUrl": ""
+    }
+  ],
+  "servers": [],
+  "players": [],
+  "users": [
+    {
+      "id": "usr-admin",
+      "username": "Admin25@GET",
+      "email": "admin88@gmail.com",
+      "role": "admin",
+      "passwordHash": "7a57d6b70466014591e877b4d75780eb62026b58c62c2981fd7ee72910796c0a",
+      "backupPasswordHash": "6b396fc6a7cf7d18fa232c08c0b7a36b417fc9618c9d512ce1e67d25dd696eb2",
+      "createdAt": "2026-05-14T19:16:50.814Z",
+      "loginAliases": [
+        "admin25@get",
+        "admin88@gmail.com"
+      ]
+    },
+    {
+      "id": "usr-0aa18314",
+      "username": "dhwajhome26",
+      "email": "dhwajhome26@gmail.com",
+      "role": "user",
+      "passwordHash": "6b959bcb142517601ec290603f10383c70528835e556ca9f3d9fba24193e3370",
+      "backupPasswordHash": "",
+      "loginAliases": [],
+      "createdAt": "2026-05-14T21:08:07.240Z"
+    }
+  ],
+  "activity": [
+    "Default seed server removed. Create a real server from the dashboard.",
+    "Coin reward claimed: +50 coins.",
+    "Coin reward claimed: +50 coins.",
+    "SkyBlock Prime: stop.",
+    "SkyBlock Prime: deleted _smoke.",
+    "SkyBlock Prime: uploaded 1 file.",
+    "SkyBlock Prime: uploaded 1 file.",
+    "SkyBlock Prime: deleted _smoke.",
+    "SkyBlock Prime: deleted _smoke.",
+    "SkyBlock Prime: extracted _smoke/sample.zip.",
+    "SkyBlock Prime: uploaded 1 file.",
+    "SkyBlock Prime: saved _smoke/hello.txt.",
+    "SkyBlock Prime: uploaded 1 file.",
+    "SkyBlock Prime: deleted _smoke.",
+    "SkyBlock Prime: saved _smoke/hello.txt.",
+    "SkyBlock Prime: uploaded 1 file.",
+    "SkyBlock Prime: deleted ops.json.",
+    "SkyBlock Prime: start.",
+    "Backend initialized. Panel state is stored in data/panel-state.json."
+  ]
+}
