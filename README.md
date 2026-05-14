@@ -3,4 +3,6 @@ HeronPanel® — The free game server control panel for users, networks, and gam
 
 `git clone https://github.com/sparky-25/HeronPanel-Official.git`
 
+`cd HeronPanel`
+
 `node server.mjs`
