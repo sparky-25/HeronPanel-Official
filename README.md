@@ -46,5 +46,6 @@ Latest Paper versions usually require Java 21. Older Paper versions such as 1.19
 
 ```bash
 git clone https://github.com/sparky-25/HeronPanel-Official.git
+cd HeronPanel-Official
 cd HeronPanel
 node server.mjs
