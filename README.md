@@ -375,7 +375,7 @@ For real public Minecraft hosting, use a VPS. CodeSandbox and GitHub Codespaces 
 ## Domain & IP Setup
 
 ```bash
-domain-ip.sh
+bash domain-ip.sh
 ```
 
 ## License
