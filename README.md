@@ -372,3 +372,11 @@ For real public Minecraft hosting, use a VPS. CodeSandbox and GitHub Codespaces 
 ## License
 
 HeronPanel Official is provided as a free game server control panel project.
+
+## Credits
+Code By **DhwaJXD** & **ManyaXD**
+
+---
+
+*Gmail:-* zerakubusiness@gmail.com
+*Discord:-* hahahahaha413 - manya_pro
