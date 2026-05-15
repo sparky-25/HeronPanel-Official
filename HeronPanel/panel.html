@@ -1,198 +1,220 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>HeronPanel</title>
-    <link rel="icon" type="image/png" href="assets/brand-logo.png">
-    <link rel="stylesheet" href="styles.css">
-  </head>
-  <body data-page="panel">
-    <svg class="icon-sprite" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <symbol id="i-server" viewBox="0 0 24 24"><path d="M5 4h14a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm0 9h14a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2Zm2-5h.01M7 17h.01"></path></symbol>
-      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></symbol>
-      <symbol id="i-package" viewBox="0 0 24 24"><path d="m3 7 9-4 9 4-9 4-9-4Zm0 0v10l9 4 9-4V7M12 11v10"></path></symbol>
-      <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M9.5 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm11.5 10v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"></path></symbol>
-      <symbol id="i-settings" viewBox="0 0 24 24"><path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Zm7.4-2.1a7.8 7.8 0 0 0 .05-2.8l2-1.55-2-3.46-2.42.98a8.5 8.5 0 0 0-2.42-1.4L14.25 2h-4.5l-.36 3.17a8.5 8.5 0 0 0-2.42 1.4l-2.42-.98-2 3.46 2 1.55a7.8 7.8 0 0 0 .05 2.8l-2.05 1.55 2 3.46 2.48-.99a8.1 8.1 0 0 0 2.36 1.36l.36 3.22h4.5l.36-3.22a8.1 8.1 0 0 0 2.36-1.36l2.48.99 2-3.46-2.05-1.55Z"></path></symbol>
-      <symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-4l-3 8-6-16-3 8H2"></path></symbol>
-      <symbol id="i-coin" viewBox="0 0 24 24"><path d="M12 22c5 0 9-2 9-4.5V6.5C21 4 17 2 12 2S3 4 3 6.5v11C3 20 7 22 12 22Zm9-10.5C21 14 17 16 12 16s-9-2-9-4.5M21 6.5C21 9 17 11 12 11S3 9 3 6.5"></path></symbol>
-      <symbol id="i-backup" viewBox="0 0 24 24"><path d="M12 3v10m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"></path></symbol>
-      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"></path></symbol>
-      <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4v16l13-8L7 4Z"></path></symbol>
-      <symbol id="i-stop" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"></path></symbol>
-      <symbol id="i-restart" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 11V5m0 6h-6"></path></symbol>
-      <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m4 7 5 5-5 5m7 0h9"></path></symbol>
-      <symbol id="i-network" viewBox="0 0 24 24"><path d="M12 5v14M5 8h14M5 16h14M5 8l7-5 7 5M5 16l7 5 7-5"></path></symbol>
-      <symbol id="i-database" viewBox="0 0 24 24"><path d="M4 6c0-2 3.6-4 8-4s8 2 8 4-3.6 4-8 4-8-2-8-4Zm0 0v12c0 2 3.6 4 8 4s8-2 8-4V6M4 12c0 2 3.6 4 8 4s8-2 8-4"></path></symbol>
-      <symbol id="i-calendar" viewBox="0 0 24 24"><path d="M7 3v4m10-4v4M4 9h16M5 5h14a1 1 0 0 1 1 1v14H4V6a1 1 0 0 1 1-1Z"></path></symbol>
-      <symbol id="i-code" viewBox="0 0 24 24"><path d="m8 9-4 3 4 3m8-6 4 3-4 3m-2-10-4 14"></path></symbol>
-      <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"></path></symbol>
-      <symbol id="i-send" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4 20-7Z"></path></symbol>
-      <symbol id="i-search" viewBox="0 0 24 24"><path d="m21 21-4.3-4.3M10.8 18a7.2 7.2 0 1 1 0-14.4 7.2 7.2 0 0 1 0 14.4Z"></path></symbol>
-      <symbol id="i-ban" viewBox="0 0 24 24"><path d="M4.93 4.93a10 10 0 1 0 14.14 14.14A10 10 0 0 0 4.93 4.93Zm0 0 14.14 14.14"></path></symbol>
-      <symbol id="i-user" viewBox="0 0 24 24"><path d="M20 21a8 8 0 0 0-16 0M12 13a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z"></path></symbol>
-      <symbol id="i-logout" viewBox="0 0 24 24"><path d="M10 17 15 12l-5-5M15 12H3M21 3v18h-7"></path></symbol>
-      <symbol id="i-layer" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Zm-7 9 7 4 7-4M5 16l7 4 7-4"></path></symbol>
-    </svg>
+#!/usr/bin/env bash
+set -euo pipefail
 
-    <video class="background-video" autoplay muted loop playsinline poster="assets/brand-logo.png">
-      <source src="assets/bg.mp4" type="video/mp4">
-    </video>
-    <div class="background-overlay" aria-hidden="true"></div>
+APP_NAME="HeronPanel Domain/IP Setup"
+DEFAULT_PANEL_PORT="4173"
+DEFAULT_MC_PORT="25565"
 
-    <main class="auth-screen" id="authScreen">
-      <section class="auth-card">
-        <img src="assets/brand-logo.png" alt="HeronPanel" class="auth-logo">
-        <div>
-          <p class="eyebrow">HeronPanel secure access</p>
-          <h1>Login</h1>
-        </div>
-        <form id="loginForm" class="stack-form">
-          <label>Username or email<input name="identifier" autocomplete="username" placeholder="Username or email"></label>
-          <label>Password<input name="password" type="password" autocomplete="current-password"></label>
-          <button class="primary-button wide" type="submit"><svg class="button-icon"><use href="#i-user"></use></svg>Login</button>
-        </form>
-        <button class="ghost-button wide" id="showRegisterBtn" type="button"><svg class="button-icon"><use href="#i-plus"></use></svg>Create account</button>
-        <form id="registerForm" class="stack-form hidden">
-          <label>Username<input name="username" autocomplete="username"></label>
-          <label>Email<input name="email" type="email" autocomplete="email"></label>
-          <label>Password<input name="password" type="password" autocomplete="new-password"></label>
-          <button class="primary-button wide" type="submit"><svg class="button-icon"><use href="#i-plus"></use></svg>Register</button>
-        </form>
-        <p class="form-note">Use your admin username/email and password. Backup password works from the same login box.</p>
-      </section>
-    </main>
+line() {
+  printf '%s\n' "------------------------------------------------------------"
+}
 
-    <main class="panel-shell hidden" id="panelShell">
-      <header class="ptero-topbar">
-        <div class="ptero-brand">
-          <img src="assets/brand-logo.png" alt="">
-          <strong data-bind="panelName">HeronPanel</strong>
-        </div>
-        <div class="ptero-tools">
-          <a class="top-icon" href="index.html" title="Dashboard" aria-label="Dashboard"><svg class="button-icon"><use href="#i-server"></use></svg></a>
-          <button class="top-icon" id="serverListBtn" type="button" title="Servers"><svg class="button-icon"><use href="#i-layer"></use></svg></button>
-          <button class="top-icon" id="createServerBtn" type="button" title="Create server"><svg class="button-icon"><use href="#i-plus"></use></svg></button>
-          <button class="top-icon" id="adminPanelBtn" type="button" title="Admin"><svg class="button-icon"><use href="#i-settings"></use></svg></button>
-          <a class="top-icon" href="marketplace.html" title="Marketplace" aria-label="Marketplace"><svg class="button-icon"><use href="#i-coin"></use></svg></a>
-          <button class="top-icon" id="accountSettingsBtn" type="button" title="Account settings"><svg class="button-icon"><use href="#i-user"></use></svg></button>
-          <button class="top-icon" id="logoutBtn" type="button" title="Logout"><svg class="button-icon"><use href="#i-logout"></use></svg></button>
-        </div>
-      </header>
+title() {
+  clear 2>/dev/null || true
+  line
+  printf ' %s\n' "$APP_NAME"
+  line
+}
 
-      <nav class="ptero-tabs" id="serverTabs">
-        <button class="tab-link active" data-tab="console"><svg class="button-icon"><use href="#i-terminal"></use></svg>Console</button>
-        <button class="tab-link" data-tab="files"><svg class="button-icon"><use href="#i-folder"></use></svg>File Manager</button>
-        <button class="tab-link" data-tab="databases"><svg class="button-icon"><use href="#i-database"></use></svg>Databases</button>
-        <button class="tab-link" data-tab="schedules"><svg class="button-icon"><use href="#i-calendar"></use></svg>Schedules</button>
-        <button class="tab-link" data-tab="subusers"><svg class="button-icon"><use href="#i-users"></use></svg>Users</button>
-        <button class="tab-link" data-tab="backups"><svg class="button-icon"><use href="#i-backup"></use></svg>Backups</button>
-        <button class="tab-link" data-tab="network"><svg class="button-icon"><use href="#i-network"></use></svg>Network</button>
-        <button class="tab-link" data-tab="startup"><svg class="button-icon"><use href="#i-code"></use></svg>Startup</button>
-        <button class="tab-link" data-tab="settings"><svg class="button-icon"><use href="#i-settings"></use></svg>Settings</button>
-        <button class="tab-link" data-tab="plugins"><svg class="button-icon"><use href="#i-package"></use></svg>Plugin Installer</button>
-        <button class="tab-link" data-tab="mods"><svg class="button-icon"><use href="#i-code"></use></svg>Mod Management</button>
-        <button class="tab-link" data-tab="players"><svg class="button-icon"><use href="#i-users"></use></svg>Player Management</button>
-      </nav>
+need_value() {
+  local prompt="$1"
+  local fallback="${2:-}"
+  local value
+  if [ -n "$fallback" ]; then
+    read -r -p "$prompt [$fallback]: " value
+    printf '%s' "${value:-$fallback}"
+  else
+    read -r -p "$prompt: " value
+    while [ -z "$value" ]; do
+      read -r -p "$prompt: " value
+    done
+    printf '%s' "$value"
+  fi
+}
 
-      <section class="ptero-content">
-        <div class="server-picker hidden" id="serverPicker"></div>
-        <div id="panelContent"></div>
-      </section>
-    </main>
+has_cmd() {
+  command -v "$1" >/dev/null 2>&1
+}
 
-    <div class="modal hidden" id="createModal">
-      <form class="modal-card stack-form" id="createServerForm">
-        <div class="section-header compact">
-          <div>
-            <p class="eyebrow">Provision</p>
-            <h2>Create server</h2>
-          </div>
-          <button class="mini-button" type="button" data-close-modal><svg class="button-icon"><use href="#i-ban"></use></svg>Close</button>
-        </div>
-        <label>Server name<input name="name" required maxlength="32" placeholder="SkyBlock Prime"></label>
-        <div class="form-grid">
-          <label>Game egg<select name="egg" id="eggSelect"></select></label>
-          <label>Provider<select name="provider" id="providerSelect"></select></label>
-        </div>
-        <div class="form-grid">
-          <label>Region<input name="region" value="India - Mumbai"></label>
-          <label>Runtime<input name="runtime" value="Java 21"></label>
-        </div>
-        <label>Paper version<select name="paperVersion" class="paper-version-select"><option value="latest">Latest Paper</option></select></label>
-        <div class="form-grid">
-          <label>RAM GB<input name="ram" type="number" min="1" max="64" value="2"></label>
-          <label>CPU %<input name="cpu" type="number" min="25" max="800" value="100"></label>
-        </div>
-        <label>Disk GB<input name="disk" type="number" min="1" max="500" value="10"></label>
-        <label class="checkbox-row"><input name="autoStart" type="checkbox" checked> Auto start</label>
-        <button class="primary-button wide" type="submit"><svg class="button-icon"><use href="#i-coin"></use></svg>Create for coins</button>
-      </form>
-    </div>
+write_web_config() {
+  local tunnel="$1"
+  local domain="$2"
+  local port="$3"
+  cat > cloudflare-tunnel.yml <<EOF
+tunnel: ${tunnel}
+credentials-file: ~/.cloudflared/${tunnel}.json
 
-    <div class="modal hidden" id="adminModal">
-      <form class="modal-card stack-form" id="adminSettingsForm">
-        <div class="section-header compact">
-          <div>
-            <p class="eyebrow">Admin</p>
-            <h2>Economy and providers</h2>
-          </div>
-          <button class="mini-button" type="button" data-close-modal><svg class="button-icon"><use href="#i-ban"></use></svg>Close</button>
-        </div>
-        <label>Panel name<input name="panelName" maxlength="28"></label>
-        <div class="form-grid">
-          <label>Server cost<input name="serverCost" type="number" min="1"></label>
-          <label>Max servers<input name="maxServers" type="number" min="1"></label>
-        </div>
-        <div class="form-grid">
-          <label>Click target<input name="clickTarget" type="number" min="1"></label>
-          <label>Click reward<input name="clickReward" type="number" min="1"></label>
-        </div>
-        <label>Default MOTD<textarea name="motd" rows="3"></textarea></label>
-        <div class="toggle-grid">
-          <label class="checkbox-row"><input name="local" type="checkbox"> Local</label>
-          <label class="checkbox-row"><input name="pterodactyl" type="checkbox"> Pterodactyl</label>
-          <label class="checkbox-row"><input name="codesandbox" type="checkbox"> Codesandbox</label>
-          <label class="checkbox-row"><input name="github" type="checkbox"> GitHub</label>
-          <label class="checkbox-row"><input name="vps" type="checkbox"> VPS</label>
-        </div>
-        <button class="primary-button wide" type="submit"><svg class="button-icon"><use href="#i-settings"></use></svg>Save admin settings</button>
-      </form>
-    </div>
+ingress:
+  - hostname: ${domain}
+    service: http://127.0.0.1:${port}
+  - service: http_status:404
+EOF
+}
 
-    <div class="modal hidden" id="accountModal">
-      <form class="modal-card stack-form" id="accountSettingsForm">
-        <div class="section-header compact">
-          <div>
-            <p class="eyebrow">Account</p>
-            <h2>Account settings</h2>
-          </div>
-          <button class="mini-button" type="button" data-close-modal><svg class="button-icon"><use href="#i-ban"></use></svg>Close</button>
-        </div>
-        <div class="account-summary">
-          <div class="account-avatar"><svg class="button-icon"><use href="#i-user"></use></svg></div>
-          <div>
-            <strong id="accountSummaryName">User</strong>
-            <span id="accountSummaryRole">user</span>
-          </div>
-        </div>
-        <div class="form-grid">
-          <label>Username<input name="username" autocomplete="username" required minlength="3"></label>
-          <label>Email<input name="email" type="email" autocomplete="email" required></label>
-        </div>
-        <div class="password-section">
-          <p class="eyebrow">Password</p>
-          <label>Current password<input name="currentPassword" type="password" autocomplete="current-password" placeholder="Required for password change"></label>
-          <div class="form-grid">
-            <label>New password<input name="newPassword" type="password" autocomplete="new-password" minlength="6"></label>
-            <label>Confirm new password<input name="confirmPassword" type="password" autocomplete="new-password" minlength="6"></label>
-          </div>
-        </div>
-        <button class="primary-button wide" type="submit"><svg class="button-icon"><use href="#i-user"></use></svg>Save account</button>
-      </form>
-    </div>
+write_tcp_config() {
+  local tunnel="$1"
+  local domain="$2"
+  local port="$3"
+  cat > cloudflare-tunnel.yml <<EOF
+tunnel: ${tunnel}
+credentials-file: ~/.cloudflared/${tunnel}.json
 
-    <div class="toast-region" id="toastRegion" aria-live="polite"></div>
-    <script src="app.js"></script>
-  </body>
-</html>
+ingress:
+  - hostname: ${domain}
+    service: tcp://127.0.0.1:${port}
+  - service: http_status:404
+EOF
+}
+
+write_docker_compose() {
+  local token="$1"
+  cat > docker-compose.cloudflared.yml <<EOF
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: heronpanel-cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${token}
+EOF
+}
+
+print_token_commands() {
+  local token="$1"
+  line
+  printf 'Cloudflare Tunnel Docker command:\n\n'
+  printf 'docker run -d --name heronpanel-cloudflared --restart unless-stopped cloudflare/cloudflared:latest tunnel --no-autoupdate run --token %s\n\n' "$token"
+  write_docker_compose "$token"
+  printf 'Docker Compose file created: docker-compose.cloudflared.yml\n'
+  printf 'Run it with:\n\n'
+  printf 'docker compose -f docker-compose.cloudflared.yml up -d\n'
+}
+
+website_setup() {
+  title
+  printf 'Website Custom Domain Setup\n\n'
+  local domain
+  local port
+  local mode
+  domain="$(need_value 'Enter website domain/subdomain, example panel.example.com')"
+  port="$(need_value 'Local HeronPanel web port' "$DEFAULT_PANEL_PORT")"
+  line
+  printf 'Choose setup mode:\n'
+  printf '1) Cloudflare dashboard token / Docker command\n'
+  printf '2) Local cloudflared login/create/route/run\n'
+  printf '3) Quick trycloudflare.com tunnel for testing\n'
+  read -r -p 'Select option [1]: ' mode
+  mode="${mode:-1}"
+
+  if [ "$mode" = "1" ]; then
+    local token
+    token="$(need_value 'Paste Cloudflare Tunnel token')"
+    printf '\nIn Cloudflare Zero Trust, make sure Public Hostname points:\n'
+    printf '  Hostname: %s\n' "$domain"
+    printf '  Service:  http://127.0.0.1:%s\n\n' "$port"
+    print_token_commands "$token"
+    return
+  fi
+
+  if [ "$mode" = "3" ]; then
+    printf '\nRun this test tunnel:\n\n'
+    printf 'cloudflared tunnel --url http://127.0.0.1:%s\n' "$port"
+    return
+  fi
+
+  local tunnel
+  tunnel="$(need_value 'Tunnel name' 'heronpanel-web')"
+  write_web_config "$tunnel" "$domain" "$port"
+  printf '\nGenerated cloudflare-tunnel.yml\n\n'
+  printf 'Run these commands:\n\n'
+  printf 'cloudflared tunnel login\n'
+  printf 'cloudflared tunnel create %s\n' "$tunnel"
+  printf 'cloudflared tunnel route dns %s %s\n' "$tunnel" "$domain"
+  printf 'cloudflared tunnel --config cloudflare-tunnel.yml run %s\n' "$tunnel"
+}
+
+minecraft_setup() {
+  title
+  printf 'Minecraft IP Setup\n\n'
+  printf 'Important:\n'
+  printf '- Normal Minecraft clients need a public TCP address. Best VPS setup is DNS A + SRV.\n'
+  printf '- Cloudflare Tunnel TCP can be used, but players usually need cloudflared client/access on their side.\n\n'
+  local mode
+  printf 'Choose setup:\n'
+  printf '1) Normal VPS DNS A/SRV records\n'
+  printf '2) Cloudflare TCP tunnel profile\n'
+  printf '3) Docker tunnel token command\n'
+  read -r -p 'Select option [1]: ' mode
+  mode="${mode:-1}"
+
+  local domain
+  local port
+  domain="$(need_value 'Enter Minecraft domain/subdomain, example play.example.com')"
+  port="$(need_value 'Minecraft server port' "$DEFAULT_MC_PORT")"
+
+  if [ "$mode" = "1" ]; then
+    local ip
+    ip="$(need_value 'Your VPS public IPv4')"
+    line
+    printf 'Create these Cloudflare DNS records:\n\n'
+    printf 'A record:\n'
+    printf '  Name: %s\n' "$domain"
+    printf '  IPv4: %s\n' "$ip"
+    printf '  Proxy: DNS only / gray cloud\n\n'
+    printf 'If you want players to join without :%s, add SRV:\n' "$port"
+    printf '  Type: SRV\n'
+    printf '  Name: _minecraft._tcp.%s\n' "$domain"
+    printf '  Priority: 0\n'
+    printf '  Weight: 5\n'
+    printf '  Port: %s\n' "$port"
+    printf '  Target: %s\n' "$domain"
+    return
+  fi
+
+  if [ "$mode" = "3" ]; then
+    local token
+    token="$(need_value 'Paste Cloudflare Tunnel token')"
+    printf '\nIn Cloudflare Zero Trust Public Hostname, use TCP service:\n'
+    printf '  Hostname: %s\n' "$domain"
+    printf '  Service:  tcp://127.0.0.1:%s\n\n' "$port"
+    print_token_commands "$token"
+    printf '\nClient side example for players using Cloudflare Access TCP:\n'
+    printf 'cloudflared access tcp --hostname %s --url localhost:%s\n' "$domain" "$port"
+    return
+  fi
+
+  local tunnel
+  tunnel="$(need_value 'Tunnel name' 'heronpanel-minecraft')"
+  write_tcp_config "$tunnel" "$domain" "$port"
+  printf '\nGenerated cloudflare-tunnel.yml\n\n'
+  printf 'Run these commands:\n\n'
+  printf 'cloudflared tunnel login\n'
+  printf 'cloudflared tunnel create %s\n' "$tunnel"
+  printf 'cloudflared tunnel route dns %s %s\n' "$tunnel" "$domain"
+  printf 'cloudflared tunnel --config cloudflare-tunnel.yml run %s\n\n' "$tunnel"
+  printf 'Player/client side TCP command:\n'
+  printf 'cloudflared access tcp --hostname %s --url localhost:%s\n' "$domain" "$port"
+}
+
+main_menu() {
+  title
+  printf 'Works on GitHub Codespaces, CodeSandbox, real VPS, and local machines if cloudflared or Docker is available.\n\n'
+  printf '1) Minecraft IP Setup\n'
+  printf '2) Website Custom Domain Setup\n'
+  printf '3) Check installed tools\n'
+  printf '0) Exit\n\n'
+  read -r -p 'Select option: ' choice
+  case "${choice:-}" in
+    1) minecraft_setup ;;
+    2) website_setup ;;
+    3)
+      line
+      has_cmd cloudflared && printf 'cloudflared: found\n' || printf 'cloudflared: not found\n'
+      has_cmd docker && printf 'docker: found\n' || printf 'docker: not found\n'
+      has_cmd node && printf 'node: found\n' || printf 'node: not found\n'
+      ;;
+    0) exit 0 ;;
+    *) printf 'Invalid option\n' ;;
+  esac
+}
+
+main_menu

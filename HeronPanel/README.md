@@ -1,374 +1,170 @@
-# HeronPanel Official
-
-HeronPanel - The free game server control panel for users, networks, and game service providers.
-
-HeronPanel is a Minecraft server management panel with a Node.js backend, real server folders, Paper version selection, live console, file manager, plugin/mod installer, player management, coins system, marketplace, and admin controls.
-
-## Features
-
-- Real Node.js backend
-- Login and register system
-- Admin and normal user accounts
-- Coins system
-- Create Minecraft servers from the dashboard
-- Marketplace server limit upgrade
-- Real Paper `server.jar` download and startup
-- Paper version selector from `1.19` to latest
-- Live console output from the running server process
-- Start, stop, and restart controls
-- Send console commands from the panel
-- File manager
-- File editor
-- File and folder upload
-- ZIP browser and extractor
-- Plugin installer
-- Mod installer
-- Online plugin/mod search with Modrinth and Spiget
-- Player management
-- OP, whitelist, kick, ban, and remove actions
-- Custom server icon
-- Custom MOTD
-- Network port management
-- Databases, schedules, users, backups, and startup settings
-- Premium black and white panel theme
-
-## Requirements
-
-Install these before running HeronPanel:
-
-- Node.js 18 or newer
-- Java 17 or Java 21
-- Git
-- Internet connection for the first Paper server download
-
-Latest Paper versions usually require Java 21. Older Paper versions such as 1.19 usually work with Java 17.
-
-## Local Installation
-
-```bash
-git clone https://github.com/sparky-25/HeronPanel-Official.git HeronPanel
-cd HeronPanel
-node server.mjs
-```
-
-Open:
-
-```txt
-http://127.0.0.1:4173
-```
-
-## Default Admin Login
-
-```txt
-Username: Admin25@GET
-Email: admin88@gmail.com
-Password: admin@#1238A821
-Backup Password: adminbackup001@#
-```
-
-Change the admin password before public hosting.
-
-## Run On Real VPS
-
-A real VPS is recommended for public Minecraft hosting.
-
-### Ubuntu / Debian VPS
-
-Install requirements:
-
-```bash
-sudo apt update
-sudo apt install -y git nodejs npm openjdk-21-jdk
-```
-
-Clone HeronPanel:
-
-```bash
-git clone https://github.com/sparky-25/HeronPanel-Official.git HeronPanel
-cd HeronPanel
-```
-
-Run the panel:
-
-```bash
-HOST=0.0.0.0 PORT=4173 node server.mjs
-```
-
-Open firewall ports:
-
-```bash
-sudo ufw allow 4173/tcp
-sudo ufw allow 25565/tcp
-```
-
-Panel URL:
-
-```txt
-http://YOUR_VPS_IP:4173
-```
-
-Minecraft server address:
-
-```txt
-YOUR_VPS_IP:25565
-```
-
-### Keep HeronPanel Running With PM2
-
-Install PM2:
-
-```bash
-sudo npm install -g pm2
-```
-
-Start HeronPanel:
-
-```bash
-HOST=0.0.0.0 PORT=4173 pm2 start server.mjs --name HeronPanel
-```
-
-Save PM2 process list:
-
-```bash
-pm2 save
-pm2 startup
-```
-
-View logs:
-
-```bash
-pm2 logs HeronPanel
-```
-
-Restart:
-
-```bash
-pm2 restart HeronPanel
-```
-
-Stop:
-
-```bash
-pm2 stop HeronPanel
-```
-
-## Run On GitHub Codespaces
-
-GitHub Codespaces is good for testing HeronPanel in the browser. It is not recommended for permanent public Minecraft hosting.
-
-### Create A Codespace
-
-1. Open your GitHub repository.
-2. Click the green `Code` button.
-3. Open the `Codespaces` tab.
-4. Click `Create codespace on main`.
-5. Wait for the browser VS Code editor to open.
-
-### Install Java If Needed
-
-Check versions:
-
-```bash
-node -v
-java -version
-```
-
-If Java is missing:
-
-```bash
-sudo apt update
-sudo apt install -y openjdk-21-jdk
-```
-
-### Run HeronPanel
-
-```bash
-HOST=0.0.0.0 PORT=4173 node server.mjs
-```
-
-### Open The Panel
-
-1. Go to the `Ports` tab.
-2. Find port `4173`.
-3. Click `Open in Browser`.
-
-The panel will open using a GitHub Codespaces preview URL.
-
-## Run On CodeSandbox
-
-CodeSandbox is good for testing the panel UI and backend. It is not recommended for permanent public Minecraft hosting.
-
-### Import The Repository
-
-1. Open CodeSandbox.
-2. Click `Import GitHub project` or `Import repository`.
-3. Paste:
-
-```txt
-https://github.com/sparky-25/HeronPanel-Official
-```
-
-4. Create or open the Devbox.
-5. Open the terminal.
-
-### Check Runtime
-
-```bash
-node -v
-java -version
-```
-
-If Java is not installed, use a Devbox or Docker environment that includes Java 21.
-
-### Run HeronPanel
-
-```bash
-HOST=0.0.0.0 PORT=4173 node server.mjs
-```
-
-### Open The Panel
-
-Open the forwarded/preview port:
-
-```txt
-4173
-```
-
-CodeSandbox will give you a preview URL for the panel.
-
-## Run From GitHub Repository
-
-GitHub itself does not run Minecraft servers directly. You can use GitHub in these ways:
-
-- Store HeronPanel source code
-- Clone HeronPanel to a VPS
-- Run HeronPanel in GitHub Codespaces
-- Use GitHub Actions only for testing/building, not live Minecraft hosting
-
-To run from GitHub on any machine:
-
-```bash
-git clone https://github.com/sparky-25/HeronPanel-Official.git HeronPanel
-cd HeronPanel
-node server.mjs
-```
-
-For cloud/VPS:
-
-```bash
-HOST=0.0.0.0 PORT=4173 node server.mjs
-```
-
-## Create A Server
-
-1. Open HeronPanel.
-2. Login or register.
-3. Click `Create server`.
-4. Select Paper version.
-5. Choose RAM, CPU, disk, provider, and region.
-6. Click create.
-7. Open the server.
-8. Click `Start`.
-
-HeronPanel creates the server folder here:
-
-```txt
-data/servers/<server-id>/
-```
-
-On first start, HeronPanel downloads the selected Paper version as:
-
-```txt
-data/servers/<server-id>/server.jar
-```
-
-## Startup Command
-
-HeronPanel uses this command for Paper servers:
-
-```bash
-java -Xms128M -Xmx{{SERVER_MEMORY}}M -jar server.jar nogui
-```
-
-`{{SERVER_MEMORY}}` is replaced with the selected server RAM in MB.
-
-Example:
-
-```bash
-java -Xms128M -Xmx4096M -jar server.jar nogui
-```
-
-## Paper Versions
-
-HeronPanel supports Paper versions from:
-
-```txt
-1.19 to latest
-```
-
-The version selector is available in:
-
-- Create server modal
-- Startup tab
-
-If you change the Paper version, HeronPanel downloads the selected version on the next server start.
-
-## Project Structure
-
-```txt
-HeronPanel/
-|-- index.html
-|-- panel.html
-|-- marketplace.html
-|-- app.js
-|-- styles.css
-|-- server.mjs
-|-- assets/
-|-- data/
-|   |-- panel-state.json
-|   |-- servers/
-|   `-- backups/
-`-- runtimes/
-```
-
-## Important Files
-
-```txt
-server.mjs              Backend server and REST API
-index.html              Main dashboard
-panel.html              Server control panel
-marketplace.html        Marketplace page
-app.js                  Frontend logic
-styles.css              Theme and layout
-data/panel-state.json   Saved panel data
-data/servers/           Server folders
-data/backups/           Backup folders
-```
-
-## Important Notes
-
-Do not open `index.html` or `panel.html` directly from the filesystem.
-
-Always run:
-
-```bash
-node server.mjs
-```
-
-Then open:
-
-```txt
-http://127.0.0.1:4173
-```
-
-For VPS, CodeSandbox, or Codespaces, use:
-
-```bash
-HOST=0.0.0.0 PORT=4173 node server.mjs
-```
-
-For real public Minecraft hosting, use a VPS. CodeSandbox and GitHub Codespaces are mainly for development/testing because Minecraft needs a stable TCP port like `25565`.
-
-## License
-
-HeronPanel Official is provided as a free game server control panel project.
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HeronPanel Dashboard</title>
+    <link rel="icon" type="image/png" href="assets/brand-logo.png">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body data-page="dashboard">
+    <svg class="icon-sprite" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <symbol id="i-server" viewBox="0 0 24 24"><path d="M5 4h14a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm0 9h14a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2Zm2-5h.01M7 17h.01"></path></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></symbol>
+      <symbol id="i-coin" viewBox="0 0 24 24"><path d="M12 22c5 0 9-2 9-4.5V6.5C21 4 17 2 12 2S3 4 3 6.5v11C3 20 7 22 12 22Zm9-10.5C21 14 17 16 12 16s-9-2-9-4.5M21 6.5C21 9 17 11 12 11S3 9 3 6.5"></path></symbol>
+      <symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-4l-3 8-6-16-3 8H2"></path></symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24"><path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Zm7.4-2.1a7.8 7.8 0 0 0 .05-2.8l2-1.55-2-3.46-2.42.98a8.5 8.5 0 0 0-2.42-1.4L14.25 2h-4.5l-.36 3.17a8.5 8.5 0 0 0-2.42 1.4l-2.42-.98-2 3.46 2 1.55a7.8 7.8 0 0 0 .05 2.8l-2.05 1.55 2 3.46 2.48-.99a8.1 8.1 0 0 0 2.36 1.36l.36 3.22h4.5l.36-3.22a8.1 8.1 0 0 0 2.36-1.36l2.48.99 2-3.46-2.05-1.55Z"></path></symbol>
+      <symbol id="i-user" viewBox="0 0 24 24"><path d="M20 21a8 8 0 0 0-16 0M12 13a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z"></path></symbol>
+      <symbol id="i-logout" viewBox="0 0 24 24"><path d="M10 17 15 12l-5-5M15 12H3M21 3v18h-7"></path></symbol>
+      <symbol id="i-layer" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Zm-7 9 7 4 7-4M5 16l7 4 7-4"></path></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4v16l13-8L7 4Z"></path></symbol>
+      <symbol id="i-stop" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"></path></symbol>
+      <symbol id="i-restart" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 11V5m0 6h-6"></path></symbol>
+      <symbol id="i-ban" viewBox="0 0 24 24"><path d="M4.93 4.93a10 10 0 1 0 14.14 14.14A10 10 0 0 0 4.93 4.93Zm0 0 14.14 14.14"></path></symbol>
+    </svg>
+
+    <video class="background-video" data-bg-video autoplay muted loop playsinline poster="assets/brand-logo.png">
+      <source src="assets/bg.mp4" type="video/mp4">
+    </video>
+    <div class="background-overlay dashboard-overlay" aria-hidden="true"></div>
+
+    <main class="auth-screen" id="authScreen">
+      <section class="auth-card">
+        <img src="assets/brand-logo.png" alt="HeronPanel" class="auth-logo">
+        <div>
+          <p class="eyebrow">HeronPanel secure access</p>
+          <h1>Login</h1>
+        </div>
+        <form id="loginForm" class="stack-form">
+          <label>Username or email<input name="identifier" autocomplete="username" placeholder="Username or email"></label>
+          <label>Password<input name="password" type="password" autocomplete="current-password"></label>
+          <button class="primary-button wide" type="submit"><svg class="button-icon"><use href="#i-user"></use></svg>Login</button>
+        </form>
+        <button class="ghost-button wide" id="showRegisterBtn" type="button"><svg class="button-icon"><use href="#i-plus"></use></svg>Create account</button>
+        <button class="ghost-button wide" data-site-settings-trigger type="button"><svg class="button-icon"><use href="#i-settings"></use></svg><span>Settings</span></button>
+        <form id="registerForm" class="stack-form hidden">
+          <label>Username<input name="username" autocomplete="username"></label>
+          <label>Email<input name="email" type="email" autocomplete="email"></label>
+          <label>Password<input name="password" type="password" autocomplete="new-password"></label>
+          <button class="primary-button wide" type="submit"><svg class="button-icon"><use href="#i-plus"></use></svg>Register</button>
+        </form>
+      </section>
+    </main>
+
+    <main class="dashboard-shell hidden" id="dashboardShell">
+      <header class="dashboard-topbar">
+        <a class="brand" href="index.html">
+          <img src="assets/brand-logo.png" alt="" class="brand-mark">
+          <span><strong data-bind="panelName">HeronPanel</strong><small>Dashboard</small></span>
+        </a>
+        <div class="top-actions">
+          <button class="ghost-button" data-site-settings-trigger type="button"><svg class="button-icon"><use href="#i-settings"></use></svg><span>Settings</span></button>
+          <button class="primary-button" id="createServerBtn" type="button"><svg class="button-icon"><use href="#i-plus"></use></svg>Create server</button>
+          <button class="ghost-button" id="adminPanelBtn" type="button"><svg class="button-icon"><use href="#i-settings"></use></svg>Admin</button>
+          <a class="ghost-button" href="marketplace.html"><svg class="button-icon"><use href="#i-coin"></use></svg>Marketplace</a>
+          <button class="ghost-button" id="accountSettingsBtn" type="button"><svg class="button-icon"><use href="#i-user"></use></svg>Account</button>
+          <button class="ghost-button" id="logoutBtn" type="button"><svg class="button-icon"><use href="#i-logout"></use></svg>Logout</button>
+        </div>
+      </header>
+      <section class="dashboard-content" id="dashboardContent"></section>
+    </main>
+
+    <div class="modal hidden" id="createModal">
+      <form class="modal-card stack-form" id="createServerForm">
+        <div class="section-header compact">
+          <div>
+            <p class="eyebrow">Provision</p>
+            <h2>Create server</h2>
+          </div>
+          <button class="mini-button" type="button" data-close-modal><svg class="button-icon"><use href="#i-ban"></use></svg>Close</button>
+        </div>
+        <label>Server name<input name="name" required maxlength="32" placeholder="SkyBlock Prime"></label>
+        <div class="form-grid">
+          <label>Game egg<select name="egg" id="eggSelect"></select></label>
+          <label>Provider<select name="provider" id="providerSelect"></select></label>
+        </div>
+        <div class="form-grid">
+          <label>Region<input name="region" value="India - Mumbai"></label>
+          <label>Runtime<input name="runtime" value="Java 21"></label>
+        </div>
+        <label>Paper version<select name="paperVersion" class="paper-version-select"><option value="latest">Latest Paper</option></select></label>
+        <div class="form-grid">
+          <label>RAM GB<input name="ram" type="number" min="1" max="64" value="2"></label>
+          <label>CPU %<input name="cpu" type="number" min="25" max="800" value="100"></label>
+        </div>
+        <div class="form-grid">
+          <label>Disk GB<input name="disk" type="number" min="1" max="500" value="10"></label>
+          <label>Backup limit<input name="backupLimit" type="number" min="0" list="backupLimitOptions" value="10"></label>
+        </div>
+        <datalist id="backupLimitOptions"><option value="0"></option><option value="5"></option><option value="10"></option><option value="20"></option><option value="30"></option></datalist>
+        <label class="checkbox-row"><input name="autoStart" type="checkbox" checked> Auto start</label>
+        <button class="primary-button wide" type="submit"><svg class="button-icon"><use href="#i-coin"></use></svg>Create for coins</button>
+      </form>
+    </div>
+
+    <div class="modal hidden" id="adminModal">
+      <form class="modal-card stack-form" id="adminSettingsForm">
+        <div class="section-header compact">
+          <div>
+            <p class="eyebrow">Admin</p>
+            <h2>Economy and providers</h2>
+          </div>
+          <button class="mini-button" type="button" data-close-modal><svg class="button-icon"><use href="#i-ban"></use></svg>Close</button>
+        </div>
+        <label>Panel name<input name="panelName" maxlength="28"></label>
+        <div class="form-grid">
+          <label>Server cost<input name="serverCost" type="number" min="1"></label>
+          <label>Max servers<input name="maxServers" type="number" min="1"></label>
+        </div>
+        <div class="form-grid">
+          <label>Click target<input name="clickTarget" type="number" min="1"></label>
+          <label>Click reward<input name="clickReward" type="number" min="1"></label>
+        </div>
+        <label>Default MOTD<textarea name="motd" rows="3"></textarea></label>
+        <div class="toggle-grid">
+          <label class="checkbox-row"><input name="local" type="checkbox"> Local</label>
+          <label class="checkbox-row"><input name="pterodactyl" type="checkbox"> Pterodactyl</label>
+          <label class="checkbox-row"><input name="codesandbox" type="checkbox"> Codesandbox</label>
+          <label class="checkbox-row"><input name="github" type="checkbox"> GitHub</label>
+          <label class="checkbox-row"><input name="vps" type="checkbox"> VPS</label>
+        </div>
+        <button class="primary-button wide" type="submit"><svg class="button-icon"><use href="#i-settings"></use></svg>Save admin settings</button>
+      </form>
+    </div>
+
+    <div class="modal hidden" id="accountModal">
+      <form class="modal-card stack-form" id="accountSettingsForm">
+        <div class="section-header compact">
+          <div>
+            <p class="eyebrow">Account</p>
+            <h2>Account settings</h2>
+          </div>
+          <button class="mini-button" type="button" data-close-modal><svg class="button-icon"><use href="#i-ban"></use></svg>Close</button>
+        </div>
+        <div class="account-summary">
+          <div class="account-avatar"><svg class="button-icon"><use href="#i-user"></use></svg></div>
+          <div>
+            <strong id="accountSummaryName">User</strong>
+            <span id="accountSummaryRole">user</span>
+          </div>
+        </div>
+        <div class="form-grid">
+          <label>Username<input name="username" autocomplete="username" required minlength="3"></label>
+          <label>Email<input name="email" type="email" autocomplete="email" required></label>
+        </div>
+        <div class="password-section">
+          <p class="eyebrow">Password</p>
+          <label>Current password<input name="currentPassword" type="password" autocomplete="current-password" placeholder="Required for password change"></label>
+          <div class="form-grid">
+            <label>New password<input name="newPassword" type="password" autocomplete="new-password" minlength="6"></label>
+            <label>Confirm new password<input name="confirmPassword" type="password" autocomplete="new-password" minlength="6"></label>
+          </div>
+        </div>
+        <button class="primary-button wide" type="submit"><svg class="button-icon"><use href="#i-user"></use></svg>Save account</button>
+      </form>
+    </div>
+
+    <div class="toast-region" id="toastRegion" aria-live="polite"></div>
+    <script src="app.js"></script>
+  </body>
+</html>
