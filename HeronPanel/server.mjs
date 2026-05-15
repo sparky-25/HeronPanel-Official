@@ -24,8 +24,32 @@ const serverRoot = join(dataDir, "servers");
 const backupRoot = join(dataDir, "backups");
 const statePath = join(dataDir, "panel-state.json");
 const port = Number(process.env.PORT || 4173);
-const runtimeScript = join(root, "runtimes", "minecraft-local-server.mjs");
-const runtimeCommand = `node "${runtimeScript}" "{{SERVER_ID}}" "{{SERVER_NAME}}"`;
+const runtimeCommand = "java -Xms128M -Xmx{{SERVER_MEMORY}}M -jar server.jar nogui";
+const paperApiBase = "https://fill.papermc.io/v3/projects/paper";
+const paperUserAgent = "HeronPanel/1.0 (support@heronpanel.local)";
+const paperVersionFallback = [
+  "1.21.11",
+  "1.21.10",
+  "1.21.9",
+  "1.21.8",
+  "1.21.7",
+  "1.21.6",
+  "1.21.5",
+  "1.21.4",
+  "1.21.3",
+  "1.21.1",
+  "1.21",
+  "1.20.6",
+  "1.20.4",
+  "1.20.2",
+  "1.20.1",
+  "1.20",
+  "1.19.4",
+  "1.19.3",
+  "1.19.2",
+  "1.19.1",
+  "1.19"
+];
 const processes = new Map();
 const sessions = new Map();
 const adminSeed = {
@@ -116,8 +140,6 @@ function defaultState() {
       maxServers: 10,
       clickTarget: 100,
       clickReward: 50,
-      primaryColor: "#19b7ff",
-      accentColor: "#ff9d3d",
       motd: "Welcome to HeronPanel. Real backend, clean control.",
       providers: {
         local: true,
@@ -227,6 +249,17 @@ function authenticate(request) {
   return user;
 }
 
+function isAdmin(user) {
+  return user?.role === "admin";
+}
+
+function requireAdmin(user) {
+  if (isAdmin(user)) return;
+  const error = new Error("Admin access required");
+  error.status = 403;
+  throw error;
+}
+
 function uid(prefix) {
   return `${prefix}-${randomUUID().slice(0, 8)}`;
 }
@@ -237,6 +270,35 @@ function slug(value) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 36) || "server";
+}
+
+function versionParts(version) {
+  const match = String(version || "").match(/^(\d+)(?:\.(\d+))?(?:\.(\d+))?/);
+  if (!match) return null;
+  return [Number(match[1] || 0), Number(match[2] || 0), Number(match[3] || 0)];
+}
+
+function compareVersions(a, b) {
+  const left = versionParts(a);
+  const right = versionParts(b);
+  if (!left || !right) return String(a).localeCompare(String(b));
+  for (let index = 0; index < 3; index += 1) {
+    if (left[index] !== right[index]) return left[index] - right[index];
+  }
+  return String(a).localeCompare(String(b));
+}
+
+function paperVersionAllowed(version) {
+  const parts = versionParts(version);
+  if (!parts) return false;
+  return compareVersions(version, "1.19") >= 0;
+}
+
+function normalizePaperVersion(value) {
+  const version = String(value || "latest").trim();
+  if (!version || version === "latest") return "latest";
+  if (!paperVersionAllowed(version)) throw new Error("Paper version must be 1.19 or newer");
+  return version;
 }
 
 async function ensureDirs() {
@@ -255,9 +317,23 @@ async function loadState() {
 
   const saved = JSON.parse((await readFile(statePath, "utf8")).replace(/^\uFEFF/, ""));
   state = mergeState(defaultState(), saved);
+  const existingServers = [];
+  const removedServers = [];
   for (const server of state.servers) {
+    if (!existsSync(serverDir(server))) {
+      removedServers.push(server);
+      continue;
+    }
     if (server.status === "running") server.status = "stopped";
     await ensureServerFiles(server);
+    existingServers.push(server);
+  }
+  if (removedServers.length) {
+    const existingIds = new Set(existingServers.map((server) => server.id));
+    state.servers = existingServers;
+    state.players = state.players.filter((player) => existingIds.has(player.serverId));
+    if (!existingIds.has(state.selectedServerId)) state.selectedServerId = state.servers[0]?.id || "";
+    addActivity(`Removed ${removedServers.length} orphan server record${removedServers.length === 1 ? "" : "s"} with missing folders.`);
   }
   await persist();
 }
@@ -269,6 +345,9 @@ function mergeState(base, saved) {
     ...base.settings.providers,
     ...((saved.settings && saved.settings.providers) || {})
   };
+  for (const key of ["primaryColor", "accentColor", "panelBackground", "animationTheme"]) {
+    delete merged.settings[key];
+  }
   merged.pluginCatalog = saved.pluginCatalog || base.pluginCatalog;
   merged.modCatalog = saved.modCatalog || base.modCatalog;
   merged.servers = saved.servers || base.servers;
@@ -277,10 +356,29 @@ function mergeState(base, saved) {
   merged.activity = saved.activity || base.activity;
   merged.pluginCatalog = hydrateCatalog(merged.pluginCatalog, base.pluginCatalog, "plugin");
   merged.modCatalog = hydrateCatalog(merged.modCatalog, base.modCatalog, "mod");
-  merged.servers = merged.servers.map((server) => ({
-    icon: "assets/brand-logo.png",
-    ...server
-  }));
+  merged.servers = merged.servers.map((server) => {
+    const ports = server.ports?.length ? server.ports.map(String) : [String(server.startup?.variables?.SERVER_PORT || "25565")];
+    const allocation = server.allocation || `127.0.0.1:${ports[0]}`;
+    const allocationPort = allocation.match(/:(\d{2,5})$/)?.[1] || ports[0];
+    return {
+      icon: "assets/brand-logo.png",
+      ...server,
+      ports,
+      allocation,
+      startup: {
+        command: !server.startup?.command || server.startup.command.includes("minecraft-local-server.mjs") ? runtimeCommand : server.startup.command,
+        image: server.startup?.image && server.startup.image !== "local-node-runtime" ? server.startup.image : "paper-java-runtime",
+        variables: {
+          ...(server.startup?.variables || {}),
+          SERVER_ID: server.id,
+          SERVER_NAME: server.name,
+          SERVER_MEMORY: String((server.ram || 2) * 1024),
+          SERVER_PORT: allocationPort,
+          MC_VERSION: normalizePaperVersion(server.startup?.variables?.MC_VERSION || "latest")
+        }
+      }
+    };
+  });
   state = merged;
   ensureAdminUser();
   return merged;
@@ -302,10 +400,10 @@ async function persist() {
   await writeFile(statePath, JSON.stringify(state, null, 2));
 }
 
-function publicState() {
+function publicState(viewer = null) {
   return {
     ...state,
-    users: state.users.map(sanitizeUser),
+    users: isAdmin(viewer) ? state.users.map(sanitizeUser) : viewer ? [sanitizeUser(viewer)] : [],
     backend: {
       connected: true,
       storage: relative(root, statePath),
@@ -325,6 +423,20 @@ function addLog(server, message) {
   server.console = server.console.slice(-120);
 }
 
+function addLogChunk(server, chunk, prefix = "") {
+  const lines = String(chunk || "").split(/\r?\n/).map((line) => line.trimEnd()).filter(Boolean);
+  for (const line of lines) addLog(server, `${prefix}${line}`);
+}
+
+function primaryPort(server) {
+  const allocationPort = String(server.allocation || "").match(/:(\d{2,5})$/)?.[1];
+  return allocationPort || server.ports?.[0] || server.startup?.variables?.SERVER_PORT || "25565";
+}
+
+function serverAddress(server) {
+  return server.allocation || `127.0.0.1:${primaryPort(server)}`;
+}
+
 function serverDir(server) {
   return join(serverRoot, server.id);
 }
@@ -338,14 +450,23 @@ async function ensureServerFiles(server) {
   await mkdir(join(base, "config"), { recursive: true });
   const props = [
     `motd=${server.motd || state.settings.motd}`,
+    `server-ip=`,
+    `server-port=${primaryPort(server)}`,
     `max-players=${server.options?.slots || 60}`,
     `gamemode=${server.options?.gamemode || "survival"}`,
     `difficulty=${server.options?.difficulty || "normal"}`,
     `white-list=${Boolean(server.options?.whitelist)}`,
     `pvp=${server.options?.pvp !== false}`,
+    `enable-command-block=${Boolean(server.options?.commandBlocks)}`,
+    `online-mode=${server.options?.cracked ? "false" : "true"}`,
+    `allow-flight=${Boolean(server.options?.fly)}`,
+    `spawn-monsters=${server.options?.monsters !== false}`,
+    `spawn-animals=${server.options?.animals !== false}`,
+    `allow-nether=${server.options?.nether !== false}`,
     `spawn-protection=${server.options?.spawnProtection || 16}`
   ].join("\n");
   await writeFile(join(base, "server.properties"), `${props}\n`);
+  await writeFile(join(base, "eula.txt"), "eula=true\n");
   await writeFile(join(base, "whitelist.json"), JSON.stringify(playersFor(server.id, "whitelisted"), null, 2));
   await writeFile(join(base, "ops.json"), JSON.stringify(playersFor(server.id, "op"), null, 2));
   await writeFile(join(base, "banned-players.json"), JSON.stringify(playersFor(server.id, "banned"), null, 2));
@@ -370,6 +491,7 @@ async function createServerRecord(input, spendCoins = true) {
   const cpu = Number(input.cpu || 100);
   const disk = Number(input.disk || 10);
   const port = 25565 + state.servers.length;
+  const paperVersion = normalizePaperVersion(input.paperVersion);
   const server = {
     id,
     name,
@@ -414,12 +536,13 @@ async function createServerRecord(input, spendCoins = true) {
     },
     startup: {
       command: runtimeCommand,
-      image: "local-node-runtime",
+      image: "paper-java-runtime",
       variables: {
         SERVER_ID: id,
         SERVER_NAME: name,
         SERVER_MEMORY: String(ram * 1024),
-        SERVER_PORT: String(port)
+        SERVER_PORT: String(port),
+        MC_VERSION: paperVersion
       }
     },
     subusers: [
@@ -428,7 +551,9 @@ async function createServerRecord(input, spendCoins = true) {
     console: [
       nowLine(`${name} filesystem created.`),
       nowLine(`Adapter selected: ${input.provider || "local"}.`),
-      nowLine("Use Start to launch the local managed process.")
+      nowLine(`Primary IP: 127.0.0.1:${port}`),
+      nowLine(`Paper version selected: ${paperVersion === "latest" ? "Latest stable" : paperVersion}.`),
+      nowLine("Use Start to launch a real Paper Minecraft process. HeronPanel will download server.jar if needed.")
     ]
   };
   await ensureServerFiles(server);
@@ -633,7 +758,7 @@ async function fetchJson(url) {
     const req = client(url, {
       headers: {
         "accept": "application/json",
-        "user-agent": "HeronPanel/1.0 (plugin search)"
+        "user-agent": paperUserAgent
       }
     }, (res) => {
       if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
@@ -645,7 +770,7 @@ async function fetchJson(url) {
       res.on("end", () => {
         const text = Buffer.concat(chunks).toString("utf8");
         if (!res.statusCode || res.statusCode < 200 || res.statusCode > 299) {
-          reject(new Error(`Search API failed with ${res.statusCode}: ${text.slice(0, 120)}`));
+          reject(new Error(`Remote API failed with ${res.statusCode}: ${text.slice(0, 120)}`));
           return;
         }
         try {
@@ -724,6 +849,30 @@ async function resolveModrinthDownload(item, loader, gameVersion) {
   };
 }
 
+function flattenPaperVersions(payload) {
+  let versions = [];
+  if (Array.isArray(payload?.versions)) {
+    versions = payload.versions;
+  } else if (payload?.versions && typeof payload.versions === "object") {
+    versions = Object.values(payload.versions).flat();
+  }
+  return Array.from(new Set(versions
+    .map((version) => typeof version === "string" ? version : version?.key || version?.id || version?.name)
+    .filter((version) => typeof version === "string" && paperVersionAllowed(version))))
+    .sort((a, b) => compareVersions(b, a));
+}
+
+async function listPaperVersions() {
+  try {
+    const payload = await fetchJson(paperApiBase);
+    const versions = flattenPaperVersions(payload);
+    if (versions.length) return versions;
+  } catch (error) {
+    console.error(`Paper version list failed: ${error.message}`);
+  }
+  return paperVersionFallback;
+}
+
 async function installExternalContent(server, body) {
   const type = normalizeContentType(body.type);
   const folder = type === "plugin" ? "plugins" : "mods";
@@ -753,11 +902,65 @@ function templateCommand(server) {
     .replaceAll("{{SERVER_ID}}", server.id)
     .replaceAll("{{SERVER_NAME}}", server.name)
     .replaceAll("{{SERVER_MEMORY}}", String(server.ram * 1024))
-    .replaceAll("{{SERVER_PORT}}", server.ports[0]);
+    .replaceAll("{{SERVER_PORT}}", primaryPort(server));
+}
+
+async function resolvePaperDownload(server) {
+  const requestedVersion = normalizePaperVersion(server.startup?.variables?.MC_VERSION || "latest");
+  const versions = await listPaperVersions();
+  const version = requestedVersion === "latest" ? versions[0] : requestedVersion;
+  if (!versions.includes(version)) throw new Error(`Paper ${version} is not available in the 1.19+ list`);
+  const buildsPayload = await fetchJson(`${paperApiBase}/versions/${encodeURIComponent(version)}/builds`);
+  const builds = (Array.isArray(buildsPayload) ? buildsPayload : buildsPayload.builds || [])
+    .filter((build) => build?.downloads?.["server:default"]?.url)
+    .sort((a, b) => Number(b.id ?? b.number ?? b.build ?? 0) - Number(a.id ?? a.number ?? a.build ?? 0));
+  const stableBuilds = builds.filter((build) => String(build.channel || "STABLE").toUpperCase() === "STABLE");
+  const latestBuild = stableBuilds[0] || builds[0];
+  if (!latestBuild) throw new Error(`No Paper server.jar build found for ${version}`);
+  const download = latestBuild.downloads["server:default"];
+  const buildNumber = latestBuild.id ?? latestBuild.number ?? latestBuild.build ?? "latest";
+  return {
+    version,
+    selected: requestedVersion,
+    build: buildNumber,
+    url: download.url,
+    fileName: download.name || `paper-${version}-${buildNumber}.jar`
+  };
+}
+
+async function ensureRealMinecraftJar(server) {
+  const command = templateCommand(server);
+  if (!/\bserver\.jar\b/i.test(command)) return;
+  const jarPath = join(serverDir(server), "server.jar");
+  const selectedVersion = normalizePaperVersion(server.startup?.variables?.MC_VERSION || "latest");
+  const installedMatches = existsSync(jarPath)
+    && server.startup?.variables?.PAPER_SELECTED === selectedVersion
+    && (selectedVersion === "latest" || server.startup?.variables?.PAPER_VERSION === selectedVersion);
+  if (installedMatches) return;
+  addLog(server, `${existsSync(jarPath) ? "Replacing" : "Downloading"} server.jar for ${selectedVersion === "latest" ? "latest stable Paper" : `Paper ${selectedVersion}`}...`);
+  const download = await resolvePaperDownload(server);
+  await downloadFile(download.url, jarPath);
+  server.startup.variables.PAPER_SELECTED = download.selected;
+  server.startup.variables.MC_VERSION = download.version;
+  if (download.selected === "latest") server.startup.variables.MC_VERSION = "latest";
+  server.startup.variables.PAPER_BUILD = String(download.build);
+  server.startup.variables.PAPER_VERSION = download.version;
+  server.startup.variables.PAPER_JAR = download.fileName;
+  addLog(server, `Paper ${download.version} build ${download.build} downloaded as server.jar.`);
 }
 
 async function startServer(server) {
   if (processes.has(server.id)) return;
+  await ensureServerFiles(server);
+  try {
+    await ensureRealMinecraftJar(server);
+  } catch (error) {
+    server.status = "stopped";
+    addLog(server, `Start blocked: ${error.message}`);
+    addLog(server, "Upload server.jar in File Manager or connect internet, then press Start again.");
+    await persist();
+    throw error;
+  }
   const command = templateCommand(server);
   const child = spawn(command, {
     cwd: serverDir(server),
@@ -767,7 +970,7 @@ async function startServer(server) {
       ...process.env,
       SERVER_ID: server.id,
       SERVER_NAME: server.name,
-      SERVER_PORT: server.ports[0],
+      SERVER_PORT: primaryPort(server),
       SERVER_MEMORY: String(server.ram * 1024)
     }
   });
@@ -775,11 +978,17 @@ async function startServer(server) {
   server.status = "running";
   addLog(server, `Process started: ${command}`);
   child.stdout.on("data", (chunk) => {
-    addLog(server, String(chunk).trim());
+    addLogChunk(server, chunk);
     persist().catch(console.error);
   });
   child.stderr.on("data", (chunk) => {
-    addLog(server, `stderr: ${String(chunk).trim()}`);
+    addLogChunk(server, chunk, "stderr: ");
+    persist().catch(console.error);
+  });
+  child.on("error", (error) => {
+    processes.delete(server.id);
+    server.status = "stopped";
+    addLog(server, `Process error: ${error.message}`);
     persist().catch(console.error);
   });
   child.on("exit", (code) => {
@@ -790,11 +999,26 @@ async function startServer(server) {
   });
 }
 
-function stopServer(server) {
+async function stopServer(server, force = false) {
   const child = processes.get(server.id);
   if (child) {
-    child.kill();
-    processes.delete(server.id);
+    if (force) {
+      child.kill();
+      processes.delete(server.id);
+    } else {
+      addLog(server, "Sending Minecraft stop command...");
+      if (child.stdin.writable) child.stdin.write("stop\n");
+      await new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          if (processes.has(server.id)) child.kill();
+          resolve();
+        }, 8000);
+        child.once("exit", () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+    }
   }
   server.status = "stopped";
   addLog(server, "Stop signal sent.");
@@ -861,7 +1085,11 @@ async function writeServerIcon(server, dataUrl) {
 async function downloadFile(url, targetPath) {
   const client = url.startsWith("https:") ? httpsRequest : httpRequest;
   await new Promise((resolve, reject) => {
-    const req = client(url, (res) => {
+    const req = client(url, {
+      headers: {
+        "user-agent": paperUserAgent
+      }
+    }, (res) => {
       if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         downloadFile(res.headers.location, targetPath).then(resolve, reject);
         return;
@@ -1003,21 +1231,35 @@ async function handleApi(request, response, url) {
       currentUser.username = username;
       currentUser.email = email;
       await persist();
-      sendJson(response, { ok: true, state: publicState(), user: sanitizeUser(currentUser) });
+      sendJson(response, { ok: true, state: publicState(currentUser), user: sanitizeUser(currentUser) });
       return;
     }
 
     if (request.method === "GET" && path === "/api/state") {
-      sendJson(response, { ok: true, state: publicState(), user: sanitizeUser(currentUser) });
+      sendJson(response, { ok: true, state: publicState(currentUser), user: sanitizeUser(currentUser) });
+      return;
+    }
+
+    if (request.method === "GET" && path === "/api/paper/versions") {
+      const versions = await listPaperVersions();
+      sendJson(response, {
+        ok: true,
+        latest: versions[0] || "latest",
+        versions: [
+          { value: "latest", label: `Latest Paper${versions[0] ? ` (${versions[0]})` : ""}` },
+          ...versions.map((version) => ({ value: version, label: `Paper ${version}` }))
+        ]
+      });
       return;
     }
 
     if (request.method === "GET" && path === "/api/export") {
+      requireAdmin(currentUser);
       response.writeHead(200, {
         "content-type": "application/json; charset=utf-8",
         "content-disposition": `attachment; filename="${slug(state.settings.panelName)}-backup.json"`
       });
-      response.end(JSON.stringify(publicState(), null, 2));
+      response.end(JSON.stringify(publicState(currentUser), null, 2));
       return;
     }
 
@@ -1083,9 +1325,9 @@ async function handleApi(request, response, url) {
       const body = await readBody(request);
       const action = body.action || "restart";
       if (action === "start") await startServer(server);
-      if (action === "stop" || action === "kill") stopServer(server);
+      if (action === "stop" || action === "kill") await stopServer(server, action === "kill");
       if (action === "restart") {
-        stopServer(server);
+        await stopServer(server);
         await startServer(server);
       }
       addActivity(`${server.name}: ${action}.`);
@@ -1105,7 +1347,9 @@ async function handleApi(request, response, url) {
         child.stdin.write(`${command}\n`);
         addLog(server, `> ${command}`);
       } else {
-        addLog(server, `Queued command while offline: ${command}`);
+        addLog(server, `Command rejected while offline: ${command}`);
+        await persist();
+        throw new Error("Server is offline. Start it before sending console commands.");
       }
       addActivity(`Command sent to ${server.name}: ${command}`);
       await persist();
@@ -1325,12 +1569,22 @@ async function handleApi(request, response, url) {
     if (request.method === "POST" && startupMatch) {
       const server = findServer(startupMatch[1]);
       const body = await readBody(request);
+      const selectedPaperVersion = normalizePaperVersion(body.paperVersion || server.startup.variables.MC_VERSION || "latest");
+      const previousPaperVersion = normalizePaperVersion(server.startup.variables.MC_VERSION || "latest");
       server.startup.command = String(body.command || server.startup.command).trim();
       server.startup.image = String(body.image || server.startup.image).trim();
       server.startup.variables = {
         ...server.startup.variables,
-        ...parseVariables(body.variablesText)
+        ...parseVariables(body.variablesText),
+        MC_VERSION: selectedPaperVersion
       };
+      if (selectedPaperVersion !== previousPaperVersion) {
+        delete server.startup.variables.PAPER_SELECTED;
+        delete server.startup.variables.PAPER_VERSION;
+        delete server.startup.variables.PAPER_BUILD;
+        delete server.startup.variables.PAPER_JAR;
+        addLog(server, `Paper version changed to ${selectedPaperVersion === "latest" ? "Latest stable" : selectedPaperVersion}. Next start will install that jar.`);
+      }
       addLog(server, "Startup command and variables updated.");
       addActivity(`${server.name}: startup updated.`);
       await persist();
@@ -1346,7 +1600,8 @@ async function handleApi(request, response, url) {
       if (!/^\d{2,5}$/.test(port)) throw new Error("Valid port required");
       if (!server.ports.includes(port)) server.ports.push(port);
       if (body.primary) server.allocation = `127.0.0.1:${port}`;
-      server.startup.variables.SERVER_PORT = server.ports[0];
+      server.startup.variables.SERVER_PORT = primaryPort(server);
+      await ensureServerFiles(server);
       addLog(server, `Port added: ${port}`);
       addActivity(`${server.name}: port ${port} added.`);
       await persist();
@@ -1440,6 +1695,8 @@ async function handleApi(request, response, url) {
         server.ports = server.ports.filter((port) => port !== String(body.value));
         if (!server.ports.length) server.ports.push("25565");
         if (server.allocation.endsWith(`:${body.value}`)) server.allocation = `127.0.0.1:${server.ports[0]}`;
+        server.startup.variables.SERVER_PORT = primaryPort(server);
+        await ensureServerFiles(server);
       }
       if (body.type === "database") server.databases = server.databases.filter((item) => item.id !== body.id);
       if (body.type === "schedule") server.schedules = server.schedules.filter((item) => item.id !== body.id);
@@ -1538,20 +1795,27 @@ async function handleApi(request, response, url) {
     }
 
     if (request.method === "POST" && path === "/api/admin/settings") {
+      requireAdmin(currentUser);
       const body = await readBody(request);
       state.settings = {
         ...state.settings,
-        ...body,
+        panelName: String(body.panelName || state.settings.panelName).trim(),
+        serverCost: Number(body.serverCost || state.settings.serverCost),
+        maxServers: Number(body.maxServers || state.settings.maxServers),
+        clickTarget: Number(body.clickTarget || state.settings.clickTarget),
+        clickReward: Number(body.clickReward || state.settings.clickReward),
+        motd: String(body.motd || state.settings.motd).trim(),
         providers: { ...state.settings.providers, ...(body.providers || {}) }
       };
       if (!Object.values(state.settings.providers).some(Boolean)) state.settings.providers.local = true;
       addActivity("Admin settings saved.");
       await persist();
-      sendJson(response, { ok: true, state: publicState() });
+      sendJson(response, { ok: true, state: publicState(currentUser) });
       return;
     }
 
     if (request.method === "POST" && path === "/api/catalog") {
+      requireAdmin(currentUser);
       const body = await readBody(request);
       const item = {
         id: uid(body.type === "mod" ? "mod" : "pl"),
@@ -1566,7 +1830,7 @@ async function handleApi(request, response, url) {
       else state.pluginCatalog.unshift(item);
       addActivity(`Catalog item added: ${item.name}.`);
       await persist();
-      sendJson(response, { ok: true, state: publicState() });
+      sendJson(response, { ok: true, state: publicState(currentUser) });
       return;
     }
 
@@ -1652,6 +1916,16 @@ createServer((request, response) => {
   }
   serveStatic(request, response, url.pathname);
 }).listen(port, "127.0.0.1", () => {
-  console.log(`HeronPanel real backend running at http://127.0.0.1:${port}`);
-  console.log(`State database: ${statePath}`);
+  console.log(`
+██╗  ██╗███████╗██████╗  ██████╗ ███╗   ██╗██████╗  █████╗ ███╗   ██╗███████╗██╗
+██║  ██║██╔════╝██╔══██╗██╔═══██╗████╗  ██║██╔══██╗██╔══██╗████╗  ██║██╔════╝██║
+███████║█████╗  ██████╔╝██║   ██║██╔██╗ ██║██████╔╝███████║██╔██╗ ██║█████╗  ██║
+██╔══██║██╔══╝  ██╔══██╗██║   ██║██║╚██╗██║██╔═══╝ ██╔══██║██║╚██╗██║██╔══╝  ██║
+██║  ██║███████╗██║  ██║╚██████╔╝██║ ╚████║██║     ██║  ██║██║ ╚████║███████╗███████╗
+╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝     ╚═╝  ╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝
+
+                    Minecraft Server Management
+
+                              🟢 RUNNING:- http://127.0.0.1:${port}
+`);
 });

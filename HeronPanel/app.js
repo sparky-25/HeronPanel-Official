@@ -26,6 +26,20 @@ let searchStatus = "Search Paper/Bukkit/Spigot plugins or Fabric/Forge mods.";
 let fileBrowser = { path: ".", entries: [] };
 let fileEditor = { path: "", content: "", loaded: false };
 let zipViewer = { zipPath: "", dir: "", entries: [], previewEntry: "", previewContent: "" };
+let paperVersions = [
+  { value: "latest", label: "Latest Paper" },
+  { value: "1.21.11", label: "Paper 1.21.11" },
+  { value: "1.21.10", label: "Paper 1.21.10" },
+  { value: "1.21.8", label: "Paper 1.21.8" },
+  { value: "1.21.4", label: "Paper 1.21.4" },
+  { value: "1.20.6", label: "Paper 1.20.6" },
+  { value: "1.20.4", label: "Paper 1.20.4" },
+  { value: "1.20.1", label: "Paper 1.20.1" },
+  { value: "1.19.4", label: "Paper 1.19.4" },
+  { value: "1.19.2", label: "Paper 1.19.2" },
+  { value: "1.19", label: "Paper 1.19" }
+];
+let paperVersionsPromise = null;
 
 const $ = (selector, scope = document) => scope.querySelector(selector);
 const $$ = (selector, scope = document) => Array.from(scope.querySelectorAll(selector));
@@ -52,6 +66,10 @@ function selected(value, current) {
   return String(value) === String(current) ? "selected" : "";
 }
 
+function canUseAdmin() {
+  return currentUser?.role === "admin";
+}
+
 function serverIcon(server) {
   return server?.icon || "assets/brand-logo.png";
 }
@@ -63,6 +81,42 @@ function selectedServer() {
 
 function variablesText(vars) {
   return Object.entries(vars || {}).map(([key, value]) => `${key}=${value}`).join("\n");
+}
+
+function selectedPaperVersion(server) {
+  return server?.startup?.variables?.MC_VERSION || "latest";
+}
+
+function paperVersionOptions(selected = "latest") {
+  const hasSelected = paperVersions.some((version) => version.value === selected);
+  const options = hasSelected ? paperVersions : [{ value: selected, label: `Paper ${selected}` }, ...paperVersions];
+  return options.map((version) => `<option value="${escapeHtml(version.value)}" ${selectedVersion(version.value, selected)}>${escapeHtml(version.label)}</option>`).join("");
+}
+
+function selectedVersion(value, current) {
+  return String(value) === String(current) ? "selected" : "";
+}
+
+function fillPaperVersionSelect(select) {
+  const selected = select.value || select.dataset.selected || "latest";
+  select.innerHTML = paperVersionOptions(selected);
+  select.value = paperVersions.some((version) => version.value === selected) ? selected : "latest";
+}
+
+async function loadPaperVersions() {
+  if (paperVersionsPromise) return paperVersionsPromise;
+  paperVersionsPromise = api("/api/paper/versions")
+    .then((payload) => {
+      if (Array.isArray(payload.versions) && payload.versions.length) {
+        paperVersions = payload.versions;
+        $$(".paper-version-select").forEach(fillPaperVersionSelect);
+      }
+    })
+    .catch(() => {})
+    .finally(() => {
+      paperVersionsPromise = null;
+    });
+  return paperVersionsPromise;
 }
 
 function readFileAsDataUrl(file) {
@@ -157,16 +211,16 @@ async function api(path, options = {}) {
 
 function applyTheme() {
   if (!state) return;
-  if (pageMode !== "panel") {
-    document.documentElement.style.setProperty("--primary", state.settings.primaryColor);
-    document.documentElement.style.setProperty("--accent", state.settings.accentColor);
-  }
   $$("[data-bind='panelName']").forEach((node) => {
     node.textContent = state.settings.panelName;
   });
   const accountButton = $("#accountSettingsBtn");
   if (accountButton && currentUser) {
     accountButton.title = `Account settings: ${currentUser.username}`;
+  }
+  const adminButton = $("#adminPanelBtn");
+  if (adminButton) {
+    adminButton.classList.toggle("hidden", !canUseAdmin());
   }
   const suffix = pageMode === "marketplace" ? "Marketplace" : pageMode === "dashboard" ? "Dashboard" : "Panel";
   document.title = `${state.settings.panelName} ${suffix}`;
@@ -442,6 +496,8 @@ function renderConsole(server) {
         <article class="ptero-card">
           <div class="ptero-card-head">${icon("server")} ${escapeHtml(server.name)}</div>
           <div class="server-status-line"><span class="dot ${server.status === "running" ? "live" : ""}"></span>${escapeHtml(server.status)}</div>
+          <div class="stat-line address-line" title="${escapeHtml(server.allocation)}">${icon("network")} ${escapeHtml(server.allocation)}</div>
+          <div class="stat-line">${icon("code")} Paper ${escapeHtml(selectedPaperVersion(server) === "latest" ? "Latest" : selectedPaperVersion(server))}</div>
           <div class="stat-line">${icon("activity")} ${server.cpu}% CPU limit</div>
           <div class="stat-line">${icon("server")} ${server.ram * 1024} MB RAM</div>
           <div class="stat-line">${icon("folder")} ${server.disk} GB disk</div>
@@ -662,10 +718,14 @@ function renderBackups(server) {
 }
 
 function renderStartup(server) {
+  const paperVersion = selectedPaperVersion(server);
   return `
     <form class="stack-form control-panel" data-startup-form data-id="${escapeHtml(server.id)}">
       <div class="section-header compact"><h2>Startup</h2><button class="primary-button" type="submit">${icon("code")}Save</button></div>
-      <label>Runtime image<input name="image" value="${escapeHtml(server.startup.image)}"></label>
+      <div class="form-grid">
+        <label>Runtime image<input name="image" value="${escapeHtml(server.startup.image)}"></label>
+        <label>Paper version<select name="paperVersion" class="paper-version-select" data-selected="${escapeHtml(paperVersion)}">${paperVersionOptions(paperVersion)}</select></label>
+      </div>
       <label>Command<textarea name="command" rows="3">${escapeHtml(server.startup.command)}</textarea></label>
       <label>Variables<textarea name="variablesText" rows="8">${escapeHtml(variablesText(server.startup.variables))}</textarea></label>
     </form>
@@ -760,6 +820,8 @@ function fillCreateOptions() {
       .map((provider) => `<option value="${provider.id}">${escapeHtml(provider.name)}</option>`)
       .join("");
   }
+  $$(".paper-version-select").forEach(fillPaperVersionSelect);
+  loadPaperVersions();
 }
 
 function fillAdminForm() {
@@ -770,8 +832,6 @@ function fillAdminForm() {
   form.maxServers.value = state.settings.maxServers;
   form.clickTarget.value = state.settings.clickTarget;
   form.clickReward.value = state.settings.clickReward;
-  form.primaryColor.value = state.settings.primaryColor;
-  form.accentColor.value = state.settings.accentColor;
   form.motd.value = state.settings.motd;
   for (const key of ["local", "pterodactyl", "codesandbox", "github", "vps"]) {
     form[key].checked = state.settings.providers[key];
@@ -849,6 +909,10 @@ function bindStaticForms() {
   $("#serverListBtn")?.addEventListener("click", () => renderServerPicker(true));
   $("#createServerBtn")?.addEventListener("click", () => $("#createModal").classList.remove("hidden"));
   $("#adminPanelBtn")?.addEventListener("click", () => {
+    if (!canUseAdmin()) {
+      toast("Admin locked", "Only admin accounts can open these settings.");
+      return;
+    }
     fillAdminForm();
     $("#adminModal").classList.remove("hidden");
   });
@@ -865,6 +929,7 @@ function bindStaticForms() {
       name: form.get("name"),
       egg: form.get("egg"),
       provider: form.get("provider"),
+      paperVersion: form.get("paperVersion") || "latest",
       region: form.get("region"),
       runtime: form.get("runtime"),
       ram: Number(form.get("ram")),
@@ -884,6 +949,10 @@ function bindStaticForms() {
 
   $("#adminSettingsForm").addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (!canUseAdmin()) {
+      toast("Admin locked", "Only admin accounts can save these settings.");
+      return;
+    }
     const form = event.currentTarget;
     const body = {
       panelName: form.panelName.value,
@@ -891,8 +960,6 @@ function bindStaticForms() {
       maxServers: Number(form.maxServers.value),
       clickTarget: Number(form.clickTarget.value),
       clickReward: Number(form.clickReward.value),
-      primaryColor: form.primaryColor.value,
-      accentColor: form.accentColor.value,
       motd: form.motd.value,
       providers: {
         local: form.local.checked,
@@ -906,7 +973,7 @@ function bindStaticForms() {
       await api("/api/admin/settings", { method: "POST", body });
       $("#adminModal").classList.add("hidden");
       await refresh();
-      toast("Admin saved", "Theme and settings updated.");
+      toast("Admin saved", "Economy and provider settings updated.");
     } catch (error) {
       toast("Admin error", error.message);
     }
@@ -1148,7 +1215,7 @@ function bindDelegatedActions() {
       } else if (form.matches("[data-startup-form]")) {
         event.preventDefault();
         const data = new FormData(form);
-        await api(`/api/servers/${form.dataset.id}/startup`, { method: "POST", body: { image: data.get("image"), command: data.get("command"), variablesText: data.get("variablesText") } });
+        await api(`/api/servers/${form.dataset.id}/startup`, { method: "POST", body: { image: data.get("image"), command: data.get("command"), paperVersion: data.get("paperVersion"), variablesText: data.get("variablesText") } });
         await refresh();
       } else if (form.matches("[data-subuser-form]")) {
         event.preventDefault();

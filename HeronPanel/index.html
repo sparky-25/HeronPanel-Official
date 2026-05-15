@@ -85,6 +85,7 @@
           <label>Region<input name="region" value="India - Mumbai"></label>
           <label>Runtime<input name="runtime" value="Java 21"></label>
         </div>
+        <label>Paper version<select name="paperVersion" class="paper-version-select"><option value="latest">Latest Paper</option></select></label>
         <div class="form-grid">
           <label>RAM GB<input name="ram" type="number" min="1" max="64" value="2"></label>
           <label>CPU %<input name="cpu" type="number" min="25" max="800" value="100"></label>
@@ -100,7 +101,7 @@
         <div class="section-header compact">
           <div>
             <p class="eyebrow">Admin</p>
-            <h2>Theme and economy</h2>
+            <h2>Economy and providers</h2>
           </div>
           <button class="mini-button" type="button" data-close-modal><svg class="button-icon"><use href="#i-ban"></use></svg>Close</button>
         </div>
@@ -112,10 +113,6 @@
         <div class="form-grid">
           <label>Click target<input name="clickTarget" type="number" min="1"></label>
           <label>Click reward<input name="clickReward" type="number" min="1"></label>
-        </div>
-        <div class="form-grid">
-          <label>Primary color<input name="primaryColor" type="color"></label>
-          <label>Accent color<input name="accentColor" type="color"></label>
         </div>
         <label>Default MOTD<textarea name="motd" rows="3"></textarea></label>
         <div class="toggle-grid">
