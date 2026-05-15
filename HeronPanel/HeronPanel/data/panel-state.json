@@ -1,0 +1,390 @@
+{
+  "coins": 175,
+  "clickProgress": 0,
+  "selectedServerId": "srv-d5953a67",
+  "activeDetailTab": "console",
+  "settings": {
+    "panelName": "HeronPanel",
+    "serverCost": 50,
+    "maxServers": 10,
+    "clickTarget": 100,
+    "clickReward": 50,
+    "primaryColor": "#4d9afe",
+    "accentColor": "#ff9d3d",
+    "panelBackground": "#080808",
+    "animationTheme": "nebula",
+    "motd": "Welcome to HeronPanel. Real backend, clean control.",
+    "providers": {
+      "local": true,
+      "pterodactyl": false,
+      "codesandbox": false,
+      "github": false,
+      "vps": false
+    }
+  },
+  "pluginCatalog": [
+    {
+      "icon": "shield",
+      "id": "pl-luckperms",
+      "name": "LuckPerms",
+      "version": "5.4",
+      "description": "Permissions and rank management.",
+      "sourceUrl": ""
+    },
+    {
+      "icon": "terminal",
+      "id": "pl-essentials",
+      "name": "EssentialsX",
+      "version": "2.21",
+      "description": "Homes, warps, economy, chat and moderation commands.",
+      "sourceUrl": ""
+    },
+    {
+      "icon": "settings",
+      "id": "pl-worldguard",
+      "name": "WorldGuard",
+      "version": "7.0",
+      "description": "Regions, flags and grief protection.",
+      "sourceUrl": ""
+    }
+  ],
+  "modCatalog": [
+    {
+      "icon": "activity",
+      "id": "mod-sodium",
+      "name": "Sodium",
+      "version": "0.6",
+      "description": "Fabric performance optimization.",
+      "sourceUrl": ""
+    },
+    {
+      "icon": "code",
+      "id": "mod-create",
+      "name": "Create",
+      "version": "0.5",
+      "description": "Mechanical automation gameplay mod.",
+      "sourceUrl": ""
+    },
+    {
+      "icon": "package",
+      "id": "mod-jei",
+      "name": "Just Enough Items",
+      "version": "17.3",
+      "description": "Recipe browser for modded servers.",
+      "sourceUrl": ""
+    }
+  ],
+  "servers": [
+    {
+      "icon": "assets/brand-logo.png",
+      "id": "srv-d5953a67",
+      "name": "Server-1",
+      "egg": "Minecraft Java Paper",
+      "provider": "local",
+      "region": "India - Mumbai",
+      "runtime": "Java 21",
+      "status": "running",
+      "ram": 4,
+      "cpu": 100,
+      "disk": 5,
+      "allocation": "127.0.0.1:25565",
+      "ports": [
+        "25565",
+        "26565"
+      ],
+      "owner": "admin",
+      "createdAt": "2026-05-15T09:55:46.869Z",
+      "motd": "Welcome to HeronPanel. Real backend, clean control.",
+      "plugins": [],
+      "mods": [],
+      "backups": [],
+      "databases": [
+        {
+          "id": "db-ffed2dce",
+          "name": "server_1_main",
+          "user": "server_1_user",
+          "host": "localhost"
+        }
+      ],
+      "schedules": [
+        {
+          "id": "sch-30f0d85c",
+          "name": "Daily restart",
+          "cron": "0 4 * * *",
+          "action": "restart",
+          "active": true
+        }
+      ],
+      "files": [
+        {
+          "name": "banned-players.json",
+          "type": "JSON",
+          "size": "1 KB"
+        },
+        {
+          "name": "config/",
+          "type": "Folder",
+          "size": "folder"
+        },
+        {
+          "name": "eula.txt",
+          "type": "TXT",
+          "size": "1 KB"
+        },
+        {
+          "name": "logs/",
+          "type": "Folder",
+          "size": "folder"
+        },
+        {
+          "name": "mods/",
+          "type": "Folder",
+          "size": "folder"
+        },
+        {
+          "name": "ops.json",
+          "type": "JSON",
+          "size": "1 KB"
+        },
+        {
+          "name": "plugins/",
+          "type": "Folder",
+          "size": "folder"
+        },
+        {
+          "name": "server.properties",
+          "type": "PROPERTIES",
+          "size": "1 KB"
+        },
+        {
+          "name": "world/",
+          "type": "Folder",
+          "size": "folder"
+        }
+      ],
+      "options": {
+        "slots": 60,
+        "gamemode": "survival",
+        "difficulty": "normal",
+        "whitelist": true,
+        "pvp": true,
+        "commandBlocks": false,
+        "cracked": false,
+        "fly": false,
+        "monsters": true,
+        "animals": true,
+        "nether": true,
+        "spawnProtection": 16,
+        "timezone": "Asia/Kolkata"
+      },
+      "startup": {
+        "command": "java -Xms128M -Xmx{{SERVER_MEMORY}}M -jar server.jar nogui",
+        "image": "paper-java-runtime",
+        "variables": {
+          "SERVER_ID": "srv-d5953a67",
+          "SERVER_NAME": "Server-1",
+          "SERVER_MEMORY": "4096",
+          "SERVER_PORT": "25565",
+          "MC_VERSION": "latest",
+          "PAPER_SELECTED": "latest",
+          "PAPER_BUILD": "63",
+          "PAPER_VERSION": "26.1.2",
+          "PAPER_JAR": "paper-26.1.2-63.jar"
+        }
+      },
+      "subusers": [
+        {
+          "name": "owner",
+          "role": "Full access",
+          "permissions": [
+            "Start",
+            "Stop",
+            "Console",
+            "Files",
+            "Backups",
+            "Players"
+          ]
+        }
+      ],
+      "console": [
+        "[15:25:46] Ready for console commands. Replace startup.command with a real Minecraft command when your jar is present.",
+        "[15:26:01] heartbeat 1: Server-1 process alive",
+        "[15:26:16] heartbeat 2: Server-1 process alive",
+        "[15:26:31] heartbeat 3: Server-1 process alive",
+        "[15:26:46] heartbeat 4: Server-1 process alive",
+        "[15:27:01] heartbeat 5: Server-1 process alive",
+        "[15:27:16] heartbeat 6: Server-1 process alive",
+        "[15:27:32] heartbeat 7: Server-1 process alive",
+        "[15:27:47] heartbeat 8: Server-1 process alive",
+        "[15:28:02] heartbeat 9: Server-1 process alive",
+        "[15:28:04] Stop signal sent.",
+        "[15:28:04] Process exited with code unknown.",
+        "[15:28:17] heartbeat 10: Server-1 process alive",
+        "[15:28:32] heartbeat 11: Server-1 process alive",
+        "[15:28:47] heartbeat 12: Server-1 process alive",
+        "[15:29:02] heartbeat 13: Server-1 process alive",
+        "[15:29:17] heartbeat 14: Server-1 process alive",
+        "[15:29:32] heartbeat 15: Server-1 process alive",
+        "[15:29:47] heartbeat 16: Server-1 process alive",
+        "[15:30:02] heartbeat 17: Server-1 process alive",
+        "[15:30:17] heartbeat 18: Server-1 process alive",
+        "[15:30:32] heartbeat 19: Server-1 process alive",
+        "[15:30:47] heartbeat 20: Server-1 process alive",
+        "[15:31:02] heartbeat 21: Server-1 process alive",
+        "[15:31:17] heartbeat 22: Server-1 process alive",
+        "[15:31:32] heartbeat 23: Server-1 process alive",
+        "[15:31:47] heartbeat 24: Server-1 process alive",
+        "[15:32:02] heartbeat 25: Server-1 process alive",
+        "[15:32:17] heartbeat 26: Server-1 process alive",
+        "[15:32:32] heartbeat 27: Server-1 process alive",
+        "[15:32:47] heartbeat 28: Server-1 process alive",
+        "[15:33:02] heartbeat 29: Server-1 process alive",
+        "[15:33:17] heartbeat 30: Server-1 process alive",
+        "[15:33:32] heartbeat 31: Server-1 process alive",
+        "[15:33:47] heartbeat 32: Server-1 process alive",
+        "[15:34:02] heartbeat 33: Server-1 process alive",
+        "[15:34:17] heartbeat 34: Server-1 process alive",
+        "[15:34:32] heartbeat 35: Server-1 process alive",
+        "[15:34:47] heartbeat 36: Server-1 process alive",
+        "[15:35:02] heartbeat 37: Server-1 process alive",
+        "[15:35:17] heartbeat 38: Server-1 process alive",
+        "[15:35:32] heartbeat 39: Server-1 process alive",
+        "[15:35:47] heartbeat 40: Server-1 process alive",
+        "[15:36:02] heartbeat 41: Server-1 process alive",
+        "[15:36:17] heartbeat 42: Server-1 process alive",
+        "[15:36:32] heartbeat 43: Server-1 process alive",
+        "[15:36:47] heartbeat 44: Server-1 process alive",
+        "[15:37:02] heartbeat 45: Server-1 process alive",
+        "[15:37:17] heartbeat 46: Server-1 process alive",
+        "[15:37:32] heartbeat 47: Server-1 process alive",
+        "[15:37:34] Stop signal sent.",
+        "[15:37:47] heartbeat 48: Server-1 process alive",
+        "[15:38:02] heartbeat 49: Server-1 process alive",
+        "[16:14:02] Stop signal sent.",
+        "[16:14:02] Downloading server.jar for latest stable Paper...",
+        "[16:14:11] Deleted: whitelist.json",
+        "[16:14:16] Paper 26.1.2 build 63 downloaded as server.jar.",
+        "[16:14:16] Process started: java -Xms128M -Xmx4096M -jar server.jar nogui",
+        "[16:14:16] Downloading mojang_26.1.2.jar",
+        "[16:15:03] Applying patches",
+        "[16:15:05] Starting org.bukkit.craftbukkit.Main",
+        "[16:15:06] stderr: 2026-05-15T10:45:06.030636400Z ServerMain WARN Advanced terminal features are not available in this environment",
+        "[16:15:06] [16:15:06 INFO]: [bootstrap] Running Java 25 (Java HotSpot(TM) 64-Bit Server VM 25.0.1+8-LTS-27; Oracle Corporation null) on Windows 11 10.0 (amd64)",
+        "[16:15:06] [16:15:06 INFO]: [bootstrap] Loading Paper 26.1.2-63-main@711c5de (2026-05-11T08:20:02Z) for Minecraft 26.1.2",
+        "[16:15:06] [16:15:06 INFO]: [PluginInitializerManager] Initializing plugins...",
+        "[16:15:06] [16:15:06 INFO]: [PluginInitializerManager] Initialized 0 plugins",
+        "[16:15:07] stderr: WARNING: A terminally deprecated method in sun.misc.Unsafe has been called",
+        "[16:15:07] stderr: WARNING: sun.misc.Unsafe::objectFieldOffset has been called by org.joml.MemUtil$MemUtilUnsafe (file:/C:/Users/MIDNYS/Desktop/HeronPanel/data/servers/srv-d5953a67/libraries/org/joml/joml/1.10.8/joml-1.10.8.jar)",
+        "[16:15:07] stderr: WARNING: Please consider reporting this to the maintainers of class org.joml.MemUtil$MemUtilUnsafe",
+        "[16:15:07] stderr: WARNING: sun.misc.Unsafe::objectFieldOffset will be removed in a future release",
+        "[16:15:10] [16:15:10 INFO]: Environment: Environment[sessionHost=https://sessionserver.mojang.com, servicesHost=https://api.minecraftservices.com, profilesHost=https://api.mojang.com, name=PROD]",
+        "[16:15:11] [16:15:11 INFO]: Found new data pack file/bukkit, loading it automatically",
+        "[16:15:11] [16:15:11 INFO]: Found new data pack paper, loading it automatically",
+        "[16:15:11] [16:15:11 INFO]: No existing world data, creating new world",
+        "[16:15:12] [16:15:12 INFO]: Loaded 1515 recipes",
+        "[16:15:12] [16:15:12 INFO]: Loaded 1617 advancements",
+        "[16:15:12] [16:15:12 INFO]: [ca.spottedleaf.dataconverter.minecraft.datatypes.MCTypeRegistry] Initialising converters for DataConverter...",
+        "[16:15:13] [16:15:13 INFO]: [ca.spottedleaf.dataconverter.minecraft.datatypes.MCTypeRegistry] Finished initialising converters for DataConverter in 320.4ms",
+        "[16:15:13] [16:15:13 INFO]: Starting minecraft server version 26.1.2",
+        "[16:15:13] [16:15:13 INFO]: Loading properties",
+        "[16:15:13] [16:15:13 INFO]: This server is running Paper version 26.1.2-63-main@711c5de (2026-05-11T08:20:02Z) (Implementing API version 26.1.2.build.63-stable)",
+        "[16:15:13] [16:15:13 INFO]: [spark] This server bundles the spark profiler. For more information please visit https://docs.papermc.io/paper/profiling",
+        "[16:15:13] [16:15:13 INFO]: Using 4 threads for Netty based IO",
+        "[16:15:13] [16:15:13 INFO]: Server Ping Player Sample Count: 12",
+        "[16:15:13] [16:15:13 INFO]: [MoonriseCommon] Paper is using 6 worker threads, 1 I/O threads",
+        "[16:15:13] [16:15:13 INFO]: Default game type: SURVIVAL",
+        "[16:15:13] [16:15:13 INFO]: Generating keypair",
+        "[16:15:13] [16:15:13 INFO]: Starting Minecraft server on *:25565",
+        "[16:15:13] [16:15:13 INFO]: Paper: Using Java compression from Velocity.",
+        "[16:15:13] [16:15:13 INFO]: Paper: Using Java cipher from Velocity.",
+        "[16:15:13] [16:15:13 INFO]: Preparing level \"world\"",
+        "[16:15:14] [16:15:14 INFO]: Selecting spawn point for level 'minecraft:overworld'...",
+        "[16:15:16] [16:15:16 INFO]: Selecting spawn point for level 'minecraft:the_nether'...",
+        "[16:15:16] [16:15:16 INFO]: Selecting spawn point for level 'minecraft:the_end'...",
+        "[16:15:16] [16:15:16 INFO]: Loading 0 persistent chunks for level 'minecraft:overworld'...",
+        "[16:15:16] [16:15:16 INFO]: Preparing spawn area: 100%",
+        "[16:15:16] [16:15:16 INFO]: Prepared spawn area in 2434 ms",
+        "[16:15:16] [16:15:16 INFO]: Loading 0 persistent chunks for level 'minecraft:the_nether'...",
+        "[16:15:16] [16:15:16 INFO]: Preparing spawn area: 100%",
+        "[16:15:16] [16:15:16 INFO]: Prepared spawn area in 594 ms",
+        "[16:15:16] [16:15:16 INFO]: Loading 0 persistent chunks for level 'minecraft:the_end'...",
+        "[16:15:16] [16:15:16 INFO]: Preparing spawn area: 100%",
+        "[16:15:16] [16:15:16 INFO]: Prepared spawn area in 150 ms",
+        "[16:15:16] [16:15:16 INFO]: Done preparing level \"world\" (2.741s)",
+        "[16:15:16] [16:15:16 INFO]: [spark] Starting background profiler...",
+        "[16:15:16] [16:15:16 INFO]: [spark] The async-profiler engine is not supported for your os/arch (windows11/amd64), so the built-in Java engine will be used instead.",
+        "[16:15:16] [16:15:16 INFO]: Saving chunks for level 'ServerLevel[world]'/minecraft:overworld",
+        "[16:15:17] [16:15:17 INFO]: Saving chunks for level 'ServerLevel[world]'/minecraft:the_nether",
+        "[16:15:17] [16:15:17 INFO]: Saving chunks for level 'ServerLevel[world]'/minecraft:the_end",
+        "[16:15:17] [16:15:17 INFO]: ThreadedAnvilChunkStorage (world): All chunks are saved",
+        "[16:15:17] [16:15:17 INFO]: ThreadedAnvilChunkStorage (DIM-1): All chunks are saved",
+        "[16:15:17] [16:15:17 INFO]: ThreadedAnvilChunkStorage (DIM1): All chunks are saved",
+        "[16:15:17] [16:15:17 INFO]: ThreadedAnvilChunkStorage: All dimensions are saved",
+        "[16:15:17] [16:15:17 INFO]: Running delayed init tasks",
+        "[16:15:17] [16:15:17 INFO]: Done (11.892s)! For help, type \"help\"",
+        "[16:15:17] [16:15:17 INFO]: *************************************************************************************",
+        "[16:15:17] [16:15:17 INFO]: This is the first time you're starting this server.",
+        "[16:15:17] [16:15:17 INFO]: It's recommended you read our 'Getting Started' documentation for guidance.",
+        "[16:15:17] [16:15:17 INFO]: View this and more helpful information here: https://docs.papermc.io/paper/next-steps",
+        "[16:15:17] [16:15:17 INFO]: *************************************************************************************"
+      ]
+    }
+  ],
+  "players": [],
+  "users": [
+    {
+      "id": "usr-admin",
+      "username": "Admin25@GET",
+      "email": "admin88@gmail.com",
+      "role": "admin",
+      "passwordHash": "7a57d6b70466014591e877b4d75780eb62026b58c62c2981fd7ee72910796c0a",
+      "backupPasswordHash": "6b396fc6a7cf7d18fa232c08c0b7a36b417fc9618c9d512ce1e67d25dd696eb2",
+      "createdAt": "2026-05-14T19:16:50.814Z",
+      "loginAliases": [
+        "admin25@get",
+        "admin88@gmail.com"
+      ]
+    },
+    {
+      "id": "usr-0aa18314",
+      "username": "dhwajhome26",
+      "email": "dhwajhome26@gmail.com",
+      "role": "user",
+      "passwordHash": "6b959bcb142517601ec290603f10383c70528835e556ca9f3d9fba24193e3370",
+      "backupPasswordHash": "",
+      "loginAliases": [],
+      "createdAt": "2026-05-14T21:08:07.240Z"
+    }
+  ],
+  "activity": [
+    "Server-1: restart.",
+    "Server-1: deleted whitelist.json.",
+    "Admin settings saved.",
+    "Server-1: stop.",
+    "Server-1: stop.",
+    "Server-1 created with local adapter.",
+    "Admin settings saved.",
+    "Admin settings saved.",
+    "Admin settings saved.",
+    "Admin settings saved.",
+    "Default seed server removed. Create a real server from the dashboard.",
+    "Coin reward claimed: +50 coins.",
+    "Coin reward claimed: +50 coins.",
+    "SkyBlock Prime: stop.",
+    "SkyBlock Prime: deleted _smoke.",
+    "SkyBlock Prime: uploaded 1 file.",
+    "SkyBlock Prime: uploaded 1 file.",
+    "SkyBlock Prime: deleted _smoke.",
+    "SkyBlock Prime: deleted _smoke.",
+    "SkyBlock Prime: extracted _smoke/sample.zip.",
+    "SkyBlock Prime: uploaded 1 file.",
+    "SkyBlock Prime: saved _smoke/hello.txt.",
+    "SkyBlock Prime: uploaded 1 file.",
+    "SkyBlock Prime: deleted _smoke.",
+    "SkyBlock Prime: saved _smoke/hello.txt.",
+    "SkyBlock Prime: uploaded 1 file.",
+    "SkyBlock Prime: deleted ops.json.",
+    "SkyBlock Prime: start.",
+    "Backend initialized. Panel state is stored in data/panel-state.json."
+  ]
+}

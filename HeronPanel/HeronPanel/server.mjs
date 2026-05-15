@@ -24,7 +24,6 @@ const serverRoot = join(dataDir, "servers");
 const backupRoot = join(dataDir, "backups");
 const statePath = join(dataDir, "panel-state.json");
 const port = Number(process.env.PORT || 4173);
-const host = process.env.HOST || "127.0.0.1";
 const runtimeCommand = "java -Xms128M -Xmx{{SERVER_MEMORY}}M -jar server.jar nogui";
 const paperApiBase = "https://fill.papermc.io/v3/projects/paper";
 const paperUserAgent = "HeronPanel/1.0 (support@heronpanel.local)";
@@ -1916,8 +1915,7 @@ createServer((request, response) => {
     return;
   }
   serveStatic(request, response, url.pathname);
-}).listen(port, host, () => {
-  const publicHost = host === "0.0.0.0" ? "127.0.0.1" : host;
+}).listen(port, "127.0.0.1", () => {
   console.log(`
 ██╗  ██╗███████╗██████╗  ██████╗ ███╗   ██╗██████╗  █████╗ ███╗   ██╗███████╗██╗
 ██║  ██║██╔════╝██╔══██╗██╔═══██╗████╗  ██║██╔══██╗██╔══██╗████╗  ██║██╔════╝██║
