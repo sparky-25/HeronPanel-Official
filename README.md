@@ -372,6 +372,12 @@ HOST=0.0.0.0 PORT=4173 node server.mjs
 
 For real public Minecraft hosting, use a VPS. CodeSandbox and GitHub Codespaces are mainly for development/testing because Minecraft needs a stable TCP port like `25565`.
 
+## Domain & IP Setup
+
+```bash
+domain-ip.sh
+```
+
 ## License
 
 HeronPanel Official is provided as a free game server control panel project.
