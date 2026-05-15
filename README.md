@@ -46,7 +46,7 @@ Latest Paper versions usually require Java 21. Older Paper versions such as 1.19
 ## Local Installation
 
 ```bash
-git clone https://github.com/sparky-25/HeronPanel-Official.git HeronPanel
+git clone https://github.com/sparky-25/HeronPanel-Official.git
 cd HeronPanel
 node server.mjs
 ```
@@ -84,7 +84,7 @@ sudo apt install -y git nodejs npm openjdk-21-jdk
 Clone HeronPanel:
 
 ```bash
-git clone https://github.com/sparky-25/HeronPanel-Official.git HeronPanel
+git clone https://github.com/sparky-25/HeronPanel-Official.git
 cd HeronPanel
 ```
 
@@ -248,7 +248,7 @@ GitHub itself does not run Minecraft servers directly. You can use GitHub in the
 To run from GitHub on any machine:
 
 ```bash
-git clone https://github.com/sparky-25/HeronPanel-Official.git HeronPanel
+git clone https://github.com/sparky-25/HeronPanel-Official.git
 cd HeronPanel
 node server.mjs
 ```
