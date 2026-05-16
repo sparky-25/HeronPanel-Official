@@ -1,39 +1,170 @@
-const [, , serverId = "server", serverName = "HeronPanel Server"] = process.argv;
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HeronPanel Dashboard</title>
+    <link rel="icon" type="image/png" href="assets/brand-logo.png">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body data-page="dashboard">
+    <svg class="icon-sprite" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <symbol id="i-server" viewBox="0 0 24 24"><path d="M5 4h14a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm0 9h14a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2Zm2-5h.01M7 17h.01"></path></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></symbol>
+      <symbol id="i-coin" viewBox="0 0 24 24"><path d="M12 22c5 0 9-2 9-4.5V6.5C21 4 17 2 12 2S3 4 3 6.5v11C3 20 7 22 12 22Zm9-10.5C21 14 17 16 12 16s-9-2-9-4.5M21 6.5C21 9 17 11 12 11S3 9 3 6.5"></path></symbol>
+      <symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-4l-3 8-6-16-3 8H2"></path></symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24"><path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Zm7.4-2.1a7.8 7.8 0 0 0 .05-2.8l2-1.55-2-3.46-2.42.98a8.5 8.5 0 0 0-2.42-1.4L14.25 2h-4.5l-.36 3.17a8.5 8.5 0 0 0-2.42 1.4l-2.42-.98-2 3.46 2 1.55a7.8 7.8 0 0 0 .05 2.8l-2.05 1.55 2 3.46 2.48-.99a8.1 8.1 0 0 0 2.36 1.36l.36 3.22h4.5l.36-3.22a8.1 8.1 0 0 0 2.36-1.36l2.48.99 2-3.46-2.05-1.55Z"></path></symbol>
+      <symbol id="i-user" viewBox="0 0 24 24"><path d="M20 21a8 8 0 0 0-16 0M12 13a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z"></path></symbol>
+      <symbol id="i-logout" viewBox="0 0 24 24"><path d="M10 17 15 12l-5-5M15 12H3M21 3v18h-7"></path></symbol>
+      <symbol id="i-layer" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Zm-7 9 7 4 7-4M5 16l7 4 7-4"></path></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4v16l13-8L7 4Z"></path></symbol>
+      <symbol id="i-stop" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"></path></symbol>
+      <symbol id="i-restart" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 11V5m0 6h-6"></path></symbol>
+      <symbol id="i-ban" viewBox="0 0 24 24"><path d="M4.93 4.93a10 10 0 1 0 14.14 14.14A10 10 0 0 0 4.93 4.93Zm0 0 14.14 14.14"></path></symbol>
+    </svg>
 
-let tick = 0;
+    <video class="background-video" data-bg-video autoplay muted loop playsinline poster="assets/brand-logo.png">
+      <source src="assets/bg.mp4" type="video/mp4">
+    </video>
+    <div class="background-overlay dashboard-overlay" aria-hidden="true"></div>
 
-function log(message) {
-  process.stdout.write(`${message}\n`);
-}
+    <main class="auth-screen" id="authScreen">
+      <section class="auth-card">
+        <img src="assets/brand-logo.png" alt="HeronPanel" class="auth-logo">
+        <div>
+          <p class="eyebrow">HeronPanel secure access</p>
+          <h1>Login</h1>
+        </div>
+        <form id="loginForm" class="stack-form">
+          <label>Username or email<input name="identifier" autocomplete="username" placeholder="Username or email"></label>
+          <label>Password<input name="password" type="password" autocomplete="current-password"></label>
+          <button class="primary-button wide" type="submit"><svg class="button-icon"><use href="#i-user"></use></svg>Login</button>
+        </form>
+        <button class="ghost-button wide" id="showRegisterBtn" type="button"><svg class="button-icon"><use href="#i-plus"></use></svg>Create account</button>
+        <button class="ghost-button wide" data-site-settings-trigger type="button"><svg class="button-icon"><use href="#i-settings"></use></svg><span>Settings</span></button>
+        <form id="registerForm" class="stack-form hidden">
+          <label>Username<input name="username" autocomplete="username"></label>
+          <label>Email<input name="email" type="email" autocomplete="email"></label>
+          <label>Password<input name="password" type="password" autocomplete="new-password"></label>
+          <button class="primary-button wide" type="submit"><svg class="button-icon"><use href="#i-plus"></use></svg>Register</button>
+        </form>
+      </section>
+    </main>
 
-log(`Local managed runtime attached to ${serverName} (${serverId}).`);
-log("Ready for console commands. Replace startup.command with a real Minecraft command when your jar is present.");
+    <main class="dashboard-shell hidden" id="dashboardShell">
+      <header class="dashboard-topbar">
+        <a class="brand" href="index.html">
+          <img src="assets/brand-logo.png" alt="" class="brand-mark">
+          <span><strong data-bind="panelName">HeronPanel</strong><small>Dashboard</small></span>
+        </a>
+        <div class="top-actions">
+          <button class="ghost-button" data-site-settings-trigger type="button"><svg class="button-icon"><use href="#i-settings"></use></svg><span>Settings</span></button>
+          <button class="primary-button" id="createServerBtn" type="button"><svg class="button-icon"><use href="#i-plus"></use></svg>Create server</button>
+          <button class="ghost-button" id="adminPanelBtn" type="button"><svg class="button-icon"><use href="#i-settings"></use></svg>Admin</button>
+          <a class="ghost-button" href="marketplace.html"><svg class="button-icon"><use href="#i-coin"></use></svg>Marketplace</a>
+          <button class="ghost-button" id="accountSettingsBtn" type="button"><svg class="button-icon"><use href="#i-user"></use></svg>Account</button>
+          <button class="ghost-button" id="logoutBtn" type="button"><svg class="button-icon"><use href="#i-logout"></use></svg>Logout</button>
+        </div>
+      </header>
+      <section class="dashboard-content" id="dashboardContent"></section>
+    </main>
 
-const heartbeat = setInterval(() => {
-  tick += 1;
-  log(`heartbeat ${tick}: ${serverName} process alive`);
-}, 15000);
+    <div class="modal hidden" id="createModal">
+      <form class="modal-card stack-form" id="createServerForm">
+        <div class="section-header compact">
+          <div>
+            <p class="eyebrow">Provision</p>
+            <h2>Create server</h2>
+          </div>
+          <button class="mini-button" type="button" data-close-modal><svg class="button-icon"><use href="#i-ban"></use></svg>Close</button>
+        </div>
+        <label>Server name<input name="name" required maxlength="32" placeholder="SkyBlock Prime"></label>
+        <div class="form-grid">
+          <label>Game egg<select name="egg" id="eggSelect"></select></label>
+          <label>Provider<select name="provider" id="providerSelect"></select></label>
+        </div>
+        <div class="form-grid">
+          <label>Region<input name="region" value="India - Mumbai"></label>
+          <label>Runtime<input name="runtime" value="Java 21"></label>
+        </div>
+        <label>Paper version<select name="paperVersion" class="paper-version-select"><option value="latest">Latest Paper</option></select></label>
+        <div class="form-grid">
+          <label>RAM GB<input name="ram" type="number" min="1" max="64" value="2"></label>
+          <label>CPU %<input name="cpu" type="number" min="25" max="800" value="100"></label>
+        </div>
+        <div class="form-grid">
+          <label>Disk GB<input name="disk" type="number" min="1" max="500" value="10"></label>
+          <label>Backup limit<input name="backupLimit" type="number" min="0" list="backupLimitOptions" value="10"></label>
+        </div>
+        <datalist id="backupLimitOptions"><option value="0"></option><option value="5"></option><option value="10"></option><option value="20"></option><option value="30"></option></datalist>
+        <label class="checkbox-row"><input name="autoStart" type="checkbox" checked> Auto start</label>
+        <button class="primary-button wide" type="submit"><svg class="button-icon"><use href="#i-coin"></use></svg>Create for coins</button>
+      </form>
+    </div>
 
-process.stdin.setEncoding("utf8");
-process.stdin.on("data", (chunk) => {
-  for (const line of chunk.split(/\r?\n/)) {
-    const command = line.trim();
-    if (!command) continue;
-    if (command === "stop") {
-      log("stop command received");
-      clearInterval(heartbeat);
-      process.exit(0);
-    }
-    if (command.startsWith("say ")) {
-      log(`[broadcast] ${command.slice(4)}`);
-      continue;
-    }
-    log(`command executed: ${command}`);
-  }
-});
+    <div class="modal hidden" id="adminModal">
+      <form class="modal-card stack-form" id="adminSettingsForm">
+        <div class="section-header compact">
+          <div>
+            <p class="eyebrow">Admin</p>
+            <h2>Economy and providers</h2>
+          </div>
+          <button class="mini-button" type="button" data-close-modal><svg class="button-icon"><use href="#i-ban"></use></svg>Close</button>
+        </div>
+        <label>Panel name<input name="panelName" maxlength="28"></label>
+        <div class="form-grid">
+          <label>Server cost<input name="serverCost" type="number" min="1"></label>
+          <label>Max servers<input name="maxServers" type="number" min="1"></label>
+        </div>
+        <div class="form-grid">
+          <label>Click target<input name="clickTarget" type="number" min="1"></label>
+          <label>Click reward<input name="clickReward" type="number" min="1"></label>
+        </div>
+        <label>Default MOTD<textarea name="motd" rows="3"></textarea></label>
+        <div class="toggle-grid">
+          <label class="checkbox-row"><input name="local" type="checkbox"> Local</label>
+          <label class="checkbox-row"><input name="pterodactyl" type="checkbox"> Pterodactyl</label>
+          <label class="checkbox-row"><input name="codesandbox" type="checkbox"> Codesandbox</label>
+          <label class="checkbox-row"><input name="github" type="checkbox"> GitHub</label>
+          <label class="checkbox-row"><input name="vps" type="checkbox"> VPS</label>
+        </div>
+        <button class="primary-button wide" type="submit"><svg class="button-icon"><use href="#i-settings"></use></svg>Save admin settings</button>
+      </form>
+    </div>
 
-process.on("SIGTERM", () => {
-  log("SIGTERM received, shutting down");
-  clearInterval(heartbeat);
-  process.exit(0);
-});
+    <div class="modal hidden" id="accountModal">
+      <form class="modal-card stack-form" id="accountSettingsForm">
+        <div class="section-header compact">
+          <div>
+            <p class="eyebrow">Account</p>
+            <h2>Account settings</h2>
+          </div>
+          <button class="mini-button" type="button" data-close-modal><svg class="button-icon"><use href="#i-ban"></use></svg>Close</button>
+        </div>
+        <div class="account-summary">
+          <div class="account-avatar"><svg class="button-icon"><use href="#i-user"></use></svg></div>
+          <div>
+            <strong id="accountSummaryName">User</strong>
+            <span id="accountSummaryRole">user</span>
+          </div>
+        </div>
+        <div class="form-grid">
+          <label>Username<input name="username" autocomplete="username" required minlength="3"></label>
+          <label>Email<input name="email" type="email" autocomplete="email" required></label>
+        </div>
+        <div class="password-section">
+          <p class="eyebrow">Password</p>
+          <label>Current password<input name="currentPassword" type="password" autocomplete="current-password" placeholder="Required for password change"></label>
+          <div class="form-grid">
+            <label>New password<input name="newPassword" type="password" autocomplete="new-password" minlength="6"></label>
+            <label>Confirm new password<input name="confirmPassword" type="password" autocomplete="new-password" minlength="6"></label>
+          </div>
+        </div>
+        <button class="primary-button wide" type="submit"><svg class="button-icon"><use href="#i-user"></use></svg>Save account</button>
+      </form>
+    </div>
+
+    <div class="toast-region" id="toastRegion" aria-live="polite"></div>
+    <script src="app.js"></script>
+  </body>
+</html>

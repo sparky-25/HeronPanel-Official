@@ -1,4 +1,10 @@
 const tokenKey = "heronpanel-token";
+const bgKey = "heronpanel-index-background";
+const bgBrightnessKey = "heronpanel-bg-brightness";
+const musicEnabledKey = "heronpanel-music-enabled";
+const musicVolumeKey = "heronpanel-music-volume";
+const siteNameKey = "heronpanel-site-name";
+const siteTitleKey = "heronpanel-site-title";
 
 const providerCatalog = [
   { id: "local", name: "Local backend" },
@@ -14,8 +20,12 @@ const gameEggs = [
   "Forge Modded",
   "Fabric Modded",
   "Velocity Proxy",
+  "Rust",
+  "CS2",
+  "Palworld",
   "Node.js Bot",
-  "Python App"
+  "Python Bot",
+  "Discord Bot"
 ];
 
 let state = null;
@@ -23,9 +33,14 @@ let currentUser = null;
 let activeTab = "console";
 let searchResults = [];
 let searchStatus = "Search Paper/Bukkit/Spigot plugins or Fabric/Forge mods.";
+let dashboardQuery = "";
+let dashboardStatusFilter = "all";
+let consoleSearch = "";
+let analyticsCache = {};
 let fileBrowser = { path: ".", entries: [] };
 let fileEditor = { path: "", content: "", loaded: false };
 let zipViewer = { zipPath: "", dir: "", entries: [], previewEntry: "", previewContent: "" };
+let siteMusic = null;
 let paperVersions = [
   { value: "latest", label: "Latest Paper" },
   { value: "1.21.11", label: "Paper 1.21.11" },
@@ -44,6 +59,12 @@ let paperVersionsPromise = null;
 const $ = (selector, scope = document) => scope.querySelector(selector);
 const $$ = (selector, scope = document) => Array.from(scope.querySelectorAll(selector));
 const pageMode = document.body.dataset.page || ($("#dashboardContent") ? "dashboard" : "panel");
+
+function clampNumber(value, min, max, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.max(min, Math.min(max, number));
+}
 
 function icon(name, className = "button-icon") {
   return `<svg class="${className}" aria-hidden="true"><use href="#i-${name}"></use></svg>`;
@@ -75,8 +96,10 @@ function serverIcon(server) {
 }
 
 function selectedServer() {
-  const id = new URLSearchParams(location.search).get("server") || state?.selectedServerId;
-  return state?.servers.find((server) => server.id === id) || state?.servers[0] || null;
+  const routeId = new URLSearchParams(location.search).get("server") || "";
+  const id = pageMode === "panel" ? routeId : routeId || state?.selectedServerId;
+  if (!id) return pageMode === "panel" ? null : state?.servers[0] || null;
+  return state?.servers.find((server) => server.id === id) || (pageMode === "panel" ? null : state?.servers[0] || null);
 }
 
 function variablesText(vars) {
@@ -128,6 +151,17 @@ function readFileAsDataUrl(file) {
     reader.readAsDataURL(file);
   });
 }
+
+const commandSuggestions = [
+  "say Server restart in 5 minutes",
+  "list",
+  "save-all",
+  "whitelist on",
+  "op PlayerName",
+  "kick PlayerName",
+  "ban PlayerName",
+  "stop"
+];
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -190,6 +224,65 @@ function setButtonBusy(button, label) {
   };
 }
 
+function setDropZoneBusy(zone, label) {
+  if (!zone) return () => {};
+  const status = zone.querySelector("[data-drop-status]");
+  const text = status?.textContent || "";
+  zone.classList.add("is-uploading");
+  if (status) status.innerHTML = `<span class="button-spinner"></span>${escapeHtml(label)}`;
+  return () => {
+    zone.classList.remove("drag-over", "is-uploading");
+    if (status) status.textContent = text;
+  };
+}
+
+async function uploadFilesToServer(serverId, targetPath, picked) {
+  if (!picked.length) throw new Error("Select files or a folder first.");
+  const files = [];
+  for (const file of picked.slice(0, 120)) {
+    files.push({
+      name: file.name,
+      relativePath: file.webkitRelativePath || file.name,
+      dataUrl: await readFileAsDataUrl(file)
+    });
+  }
+  await api(`/api/servers/${serverId}/upload`, { method: "POST", body: { targetPath: cleanUiPath(targetPath), files } });
+  fileBrowser.entries = [];
+  await refresh();
+  return files.length;
+}
+
+async function uploadContentToServer(serverId, type, picked) {
+  if (!picked.length) throw new Error("Drop plugin/mod .jar files first.");
+  const files = [];
+  for (const file of picked.slice(0, 40)) {
+    files.push({
+      name: file.name,
+      relativePath: file.webkitRelativePath || file.name,
+      dataUrl: await readFileAsDataUrl(file)
+    });
+  }
+  const payload = await api(`/api/servers/${serverId}/content-upload`, { method: "POST", body: { type, files } });
+  await refresh();
+  return payload.installed?.length || files.length;
+}
+
+async function copyText(value) {
+  const text = String(value || "");
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.style.position = "fixed";
+  area.style.opacity = "0";
+  document.body.appendChild(area);
+  area.select();
+  document.execCommand("copy");
+  area.remove();
+}
+
 async function api(path, options = {}) {
   const headers = options.body ? { "content-type": "application/json" } : {};
   const token = localStorage.getItem(tokenKey);
@@ -209,10 +302,22 @@ async function api(path, options = {}) {
   return payload;
 }
 
+function pageTitleSuffix() {
+  return pageMode === "marketplace" ? "Marketplace" : pageMode === "dashboard" ? "Dashboard" : "Panel";
+}
+
+function getSiteName() {
+  return (localStorage.getItem(siteNameKey) || "").trim() || state?.settings?.panelName || "HeronPanel";
+}
+
+function getSiteTitle() {
+  return (localStorage.getItem(siteTitleKey) || "").trim() || `${getSiteName()} ${pageTitleSuffix()}`;
+}
+
 function applyTheme() {
-  if (!state) return;
+  const siteName = getSiteName();
   $$("[data-bind='panelName']").forEach((node) => {
-    node.textContent = state.settings.panelName;
+    node.textContent = siteName;
   });
   const accountButton = $("#accountSettingsBtn");
   if (accountButton && currentUser) {
@@ -222,8 +327,189 @@ function applyTheme() {
   if (adminButton) {
     adminButton.classList.toggle("hidden", !canUseAdmin());
   }
-  const suffix = pageMode === "marketplace" ? "Marketplace" : pageMode === "dashboard" ? "Dashboard" : "Panel";
-  document.title = `${state.settings.panelName} ${suffix}`;
+  document.title = getSiteTitle();
+}
+
+function getBgBrightness() {
+  return clampNumber(localStorage.getItem(bgBrightnessKey), 0.7, 1.6, 1.18);
+}
+
+function getMusicVolume() {
+  return clampNumber(localStorage.getItem(musicVolumeKey), 0, 1, 0.35);
+}
+
+function syncSiteSettingsControls() {
+  const brightness = getBgBrightness();
+  const volume = getMusicVolume();
+  const musicEnabled = localStorage.getItem(musicEnabledKey) === "on";
+  const videoEnabled = (localStorage.getItem(bgKey) || "video") === "video";
+  const siteNameInput = $("#siteNameInput");
+  const siteTitleInput = $("#siteTitleInput");
+  const brightnessSlider = $("#bgBrightnessSlider");
+  const brightnessValue = $("#bgBrightnessValue");
+  const volumeSlider = $("#siteMusicVolume");
+  const volumeValue = $("#siteMusicVolumeValue");
+  const musicToggle = $("#siteMusicToggle");
+  const bgToggle = $("#bgVideoToggle");
+  if (siteNameInput) siteNameInput.value = getSiteName();
+  if (siteTitleInput) siteTitleInput.value = getSiteTitle();
+  if (brightnessSlider) brightnessSlider.value = String(Math.round(brightness * 100));
+  if (brightnessValue) brightnessValue.textContent = `${Math.round(brightness * 100)}%`;
+  if (volumeSlider) volumeSlider.value = String(Math.round(volume * 100));
+  if (volumeValue) volumeValue.textContent = `${Math.round(volume * 100)}%`;
+  if (musicToggle) musicToggle.checked = musicEnabled;
+  if (bgToggle) bgToggle.checked = videoEnabled;
+}
+
+function applyIndexBackground() {
+  const brightness = getBgBrightness();
+  document.documentElement.style.setProperty("--bg-video-brightness", brightness.toFixed(2));
+  const mode = localStorage.getItem(bgKey) || "video";
+  const useDefault = mode === "default";
+  if (pageMode === "dashboard") {
+    document.body.classList.toggle("default-bg", useDefault);
+  }
+  $$("[data-site-settings-trigger]").forEach((button) => button.setAttribute("title", "Open site settings"));
+  syncSiteSettingsControls();
+}
+
+function ensureSiteSettingsModal() {
+  if ($("#siteSettingsModal")) return;
+  document.body.insertAdjacentHTML("beforeend", `
+    <div class="modal hidden" id="siteSettingsModal">
+      <section class="modal-card stack-form site-settings-card">
+        <div class="section-header compact">
+          <div>
+            <p class="eyebrow">Site</p>
+            <h2>Settings</h2>
+          </div>
+          <button class="mini-button" type="button" data-close-modal><svg class="button-icon"><use href="#i-ban"></use></svg>Close</button>
+        </div>
+        <label class="setting-input">Panel name<input id="siteNameInput" maxlength="34" placeholder="HeronPanel"></label>
+        <label class="setting-input">Browser title<input id="siteTitleInput" maxlength="64" placeholder="HeronPanel Dashboard"></label>
+        <div class="setting-row">
+          <div>
+            <strong>Minecraft music</strong>
+            <span>assets/music.mp3</span>
+          </div>
+          <label class="switch-control"><input id="siteMusicToggle" type="checkbox"><span></span></label>
+        </div>
+        <div class="setting-row">
+          <div>
+            <strong>Dashboard background</strong>
+            <span>Use bg.mp4 video</span>
+          </div>
+          <label class="switch-control"><input id="bgVideoToggle" type="checkbox"><span></span></label>
+        </div>
+        <label class="range-control">Music volume <strong id="siteMusicVolumeValue">35%</strong><input id="siteMusicVolume" type="range" min="0" max="100" value="35"></label>
+        <label class="range-control">BG brightness <strong id="bgBrightnessValue">118%</strong><input id="bgBrightnessSlider" type="range" min="70" max="160" value="118"></label>
+        <button class="danger-button wide" id="resetSiteSettingsBtn" type="button"><svg class="button-icon"><use href="#i-settings"></use></svg>Reset settings</button>
+      </section>
+    </div>
+  `);
+}
+
+function openSiteSettings() {
+  ensureSiteSettingsModal();
+  syncSiteSettingsControls();
+  $("#siteSettingsModal")?.classList.remove("hidden");
+}
+
+function setMusicVolume(volume) {
+  const safe = clampNumber(volume, 0, 1, 0.35);
+  localStorage.setItem(musicVolumeKey, String(safe));
+  if (siteMusic) siteMusic.volume = safe;
+  syncSiteSettingsControls();
+}
+
+function ensureSiteMusic() {
+  if (!siteMusic) {
+    siteMusic = new Audio("assets/music.mp3");
+    siteMusic.loop = true;
+    siteMusic.preload = "auto";
+    siteMusic.volume = getMusicVolume();
+  }
+  return siteMusic;
+}
+
+async function startSiteMusic() {
+  localStorage.setItem(musicEnabledKey, "on");
+  const audio = ensureSiteMusic();
+  audio.volume = getMusicVolume();
+  await audio.play();
+  syncSiteSettingsControls();
+}
+
+function stopSiteMusic() {
+  localStorage.setItem(musicEnabledKey, "off");
+  if (siteMusic) siteMusic.pause();
+  syncSiteSettingsControls();
+}
+
+function resetSiteSettings() {
+  [bgKey, bgBrightnessKey, musicEnabledKey, musicVolumeKey, siteNameKey, siteTitleKey].forEach((key) => localStorage.removeItem(key));
+  if (siteMusic) {
+    siteMusic.pause();
+    siteMusic.currentTime = 0;
+    siteMusic.volume = getMusicVolume();
+  }
+  applyTheme();
+  applyIndexBackground();
+  syncSiteSettingsControls();
+  toast("Settings reset", "Title, name, background, brightness, and music are back to default.");
+}
+
+function resumeMusicFromGesture() {
+  if (localStorage.getItem(musicEnabledKey) !== "on") return;
+  startSiteMusic().catch(() => {});
+}
+
+function bindSiteSettingsControls() {
+  ensureSiteSettingsModal();
+  $("#siteNameInput")?.addEventListener("input", (event) => {
+    const value = event.currentTarget.value.trim();
+    if (value) localStorage.setItem(siteNameKey, value);
+    else localStorage.removeItem(siteNameKey);
+    applyTheme();
+  });
+  $("#siteTitleInput")?.addEventListener("input", (event) => {
+    const value = event.currentTarget.value.trim();
+    if (value) localStorage.setItem(siteTitleKey, value);
+    else localStorage.removeItem(siteTitleKey);
+    applyTheme();
+  });
+  $("#siteMusicToggle")?.addEventListener("change", async (event) => {
+    if (event.currentTarget.checked) {
+      try {
+        await startSiteMusic();
+      } catch (error) {
+        event.currentTarget.checked = false;
+        localStorage.setItem(musicEnabledKey, "off");
+        toast("Music blocked", error.message);
+      }
+    } else {
+      stopSiteMusic();
+    }
+  });
+  $("#siteMusicVolume")?.addEventListener("input", (event) => {
+    setMusicVolume(Number(event.currentTarget.value) / 100);
+  });
+  $("#bgVideoToggle")?.addEventListener("change", (event) => {
+    localStorage.setItem(bgKey, event.currentTarget.checked ? "video" : "default");
+    applyIndexBackground();
+  });
+  $("#bgBrightnessSlider")?.addEventListener("input", (event) => {
+    localStorage.setItem(bgBrightnessKey, String(clampNumber(Number(event.currentTarget.value) / 100, 0.7, 1.6, 1.18)));
+    applyIndexBackground();
+  });
+  $("#resetSiteSettingsBtn")?.addEventListener("click", resetSiteSettings);
+  window.addEventListener("pointerdown", resumeMusicFromGesture, { once: true });
+}
+
+function bindSiteSettingsTriggers() {
+  $$("[data-site-settings-trigger]").forEach((button) => {
+    button.addEventListener("click", openSiteSettings);
+  });
 }
 
 function showAuth() {
@@ -249,6 +535,10 @@ async function refresh() {
   state = payload.state;
   if (payload.user) currentUser = payload.user;
   applyTheme();
+  if (pageMode === "panel" && !selectedServer()) {
+    location.replace("index.html");
+    return;
+  }
   showPanel();
   render();
 }
@@ -268,7 +558,10 @@ function openServer(id) {
 
 function setTab(tab) {
   activeTab = tab;
-  history.replaceState(null, "", `panel.html?server=${encodeURIComponent(selectedServer()?.id || "")}#${tab}`);
+  if (pageMode === "panel") {
+    const serverId = selectedServer()?.id || new URLSearchParams(location.search).get("server") || "";
+    history.replaceState(null, "", serverId ? `panel.html?server=${encodeURIComponent(serverId)}#${tab}` : `panel.html#${tab}`);
+  }
   render();
 }
 
@@ -328,6 +621,24 @@ function renderMarketplace() {
             <button class="primary-button" data-action="buy-server-limit" type="button" ${Number(state.coins || 0) < 1000 ? "disabled" : ""}>${icon("coin")}Buy upgrade</button>
           </div>
         </article>
+        ${(state.marketplaceItems || []).map((item) => {
+          const purchased = (state.marketplacePurchases || []).includes(item.id);
+          return `
+            <article class="marketplace-card">
+              <div class="marketplace-offer">
+                <div class="market-icon">${icon("server", "catalog-svg")}</div>
+                <div>
+                  <strong>${escapeHtml(item.name)}</strong>
+                  <p class="muted">${escapeHtml(item.description)}</p>
+                </div>
+              </div>
+              <div class="marketplace-buy-row">
+                <span class="status-pill">${icon("coin")}${Number(item.price).toLocaleString("en-IN")}</span>
+                <button class="${purchased ? "ghost-button" : "primary-button"}" data-action="marketplace-buy" data-id="${escapeHtml(item.id)}" type="button" ${purchased || Number(state.coins || 0) < Number(item.price) ? "disabled" : ""}>${icon("coin")}${purchased ? "Owned" : "Buy"}</button>
+              </div>
+            </article>
+          `;
+        }).join("")}
       </div>
     </section>
   `;
@@ -363,11 +674,17 @@ function renderDashboard() {
             <p class="eyebrow">Your servers</p>
             <h2>Open control panel</h2>
           </div>
-          <button class="primary-button" data-action="open-create" type="button">${icon("plus")}Create</button>
+          <div class="row-actions dashboard-tools">
+            <input class="dashboard-search" data-dashboard-search name="query" value="${escapeHtml(dashboardQuery)}" placeholder="Search servers">
+            <select class="dashboard-status-filter" data-dashboard-filter name="status">
+              <option value="all" ${selected("all", dashboardStatusFilter)}>All</option>
+              <option value="running" ${selected("running", dashboardStatusFilter)}>Running</option>
+              <option value="stopped" ${selected("stopped", dashboardStatusFilter)}>Stopped</option>
+            </select>
+            <button class="primary-button" data-action="open-create" type="button">${icon("plus")}Create</button>
+          </div>
         </div>
-        <div class="server-list compact-list">
-          ${state.servers.map(renderDashboardServer).join("") || `<div class="empty-state compact-empty"><h2>No server yet</h2><p class="muted">Create one from the button above.</p></div>`}
-        </div>
+        <div class="server-list compact-list" id="dashboardServerList">${renderDashboardServerList()}</div>
       </article>
       <aside class="dashboard-side">
         <article class="panel-card earn-card compact-earn">
@@ -388,6 +705,28 @@ function renderDashboard() {
       </aside>
     </section>
   `;
+}
+
+function filteredDashboardServers() {
+  const query = dashboardQuery.trim().toLowerCase();
+  return state.servers
+    .filter((server) => dashboardStatusFilter === "all" || server.status === dashboardStatusFilter)
+    .filter((server) => {
+      if (!query) return true;
+      return [server.name, server.egg, server.allocation, server.status].some((value) => String(value || "").toLowerCase().includes(query));
+    });
+}
+
+function renderDashboardServerList() {
+  const servers = filteredDashboardServers();
+  if (!state.servers.length) return `<div class="empty-state compact-empty"><h2>No server yet</h2><p class="muted">Create one from the button above.</p></div>`;
+  if (!servers.length) return `<div class="empty-state compact-empty"><h2>No matching servers</h2><p class="muted">Try another name, IP, type, or status.</p></div>`;
+  return servers.map(renderDashboardServer).join("");
+}
+
+function refreshDashboardServerList() {
+  const list = $("#dashboardServerList");
+  if (list) list.innerHTML = renderDashboardServerList();
 }
 
 function dashboardStat(label, value, iconName) {
@@ -412,7 +751,12 @@ function renderDashboardServer(server) {
           <span>${escapeHtml(server.status)}</span>
         </div>
       </div>
-      <button class="primary-button" type="button" data-action="open-server" data-id="${escapeHtml(server.id)}">${icon("server")}Open</button>
+      <div class="server-row-actions">
+        <button class="mini-button" type="button" data-action="power" data-id="${escapeHtml(server.id)}" data-power="start" ${server.status === "running" ? "disabled" : ""}>${icon("play")}Start</button>
+        <button class="mini-button" type="button" data-action="power" data-id="${escapeHtml(server.id)}" data-power="restart">${icon("restart")}Restart</button>
+        <button class="mini-button" type="button" data-action="power" data-id="${escapeHtml(server.id)}" data-power="stop" ${server.status !== "running" ? "disabled" : ""}>${icon("stop")}Stop</button>
+        <button class="primary-button" type="button" data-action="open-server" data-id="${escapeHtml(server.id)}">${icon("server")}Open</button>
+      </div>
     </div>
   `;
 }
@@ -482,14 +826,28 @@ function renderContent() {
     settings: renderSettings,
     plugins: () => renderInstaller("plugin"),
     mods: () => renderInstaller("mod"),
-    players: renderPlayers
+    players: renderPlayers,
+    optimizer: renderOptimizer,
+    analytics: renderAnalytics,
+    autoheal: renderAutoHeal
   };
   content.innerHTML = (renderers[activeTab] || renderConsole)(server);
+}
+
+function consoleLineClass(line) {
+  const text = String(line || "").toLowerCase();
+  if (text.includes("error") || text.includes("exception") || text.includes("failed")) return "console-line log-error";
+  if (text.includes("warn") || text.includes("can't keep up") || text.includes("overloaded")) return "console-line log-warn";
+  if (text.includes("> ")) return "console-line log-command";
+  if (text.includes("done") || text.includes("started") || text.includes("running")) return "console-line log-ok";
+  return "console-line";
 }
 
 function renderConsole(server) {
   const ramPct = Math.min(100, Math.round((server.ram / 16) * 100));
   const cpuPct = Math.min(100, Math.round(server.cpu / 4));
+  const query = consoleSearch.trim().toLowerCase();
+  const lines = (server.console || []).filter((line) => !query || String(line).toLowerCase().includes(query));
   return `
     <div class="ptero-console-grid">
       <aside class="ptero-side">
@@ -509,12 +867,31 @@ function renderConsole(server) {
         </article>
       </aside>
       <section class="console-main">
+        <div class="console-toolbar">
+          <span class="status-pill">${icon("network")}${escapeHtml(server.allocation)}</span>
+          <input class="console-search" data-console-search value="${escapeHtml(consoleSearch)}" placeholder="Search console logs">
+          <div class="row-actions">
+            <button class="mini-button" type="button" data-action="copy-address" data-value="${escapeHtml(server.allocation)}">${icon("network")}Copy IP</button>
+            <button class="mini-button" type="button" data-action="clear-console" data-id="${escapeHtml(server.id)}">${icon("ban")}Clear console</button>
+          </div>
+        </div>
         <div class="console-box ptero-console">
-          ${server.console.map((line) => `<div class="console-line">${escapeHtml(line)}</div>`).join("")}
+          ${lines.map((line) => `<div class="${consoleLineClass(line)}">${escapeHtml(line)}</div>`).join("") || `<div class="console-line muted">No matching log lines.</div>`}
+        </div>
+        <div class="macro-strip">
+          ${(server.commandMacros || []).map((macro) => `
+            <button class="mini-button" type="button" data-action="run-macro" data-id="${escapeHtml(server.id)}" data-macro-id="${escapeHtml(macro.id)}">${icon("terminal")}${escapeHtml(macro.name)}</button>
+          `).join("")}
         </div>
         <form class="command-row" data-command-form data-id="${escapeHtml(server.id)}">
-          <input name="command" placeholder="say Hello players">
+          <input name="command" list="commandSuggestions" placeholder="say Hello players">
+          <datalist id="commandSuggestions">${commandSuggestions.map((cmd) => `<option value="${escapeHtml(cmd)}"></option>`).join("")}</datalist>
           <button class="primary-button" type="submit">${icon("send")}Send</button>
+        </form>
+        <form class="macro-form" data-macro-form data-id="${escapeHtml(server.id)}">
+          <input name="name" placeholder="Macro name">
+          <input name="command" placeholder="Command to save">
+          <button class="ghost-button" type="submit">${icon("plus")}Save macro</button>
         </form>
       </section>
     </div>
@@ -541,26 +918,12 @@ function renderFiles(server) {
   const entries = filesInCurrentFolder(server);
   const currentPath = cleanUiPath(fileBrowser.path);
   return `
-    <div class="control-grid">
-      <form class="stack-form control-panel" data-file-save-form data-id="${escapeHtml(server.id)}">
-        <div class="section-header compact"><h2>File Editor</h2><button class="primary-button" type="submit" data-save-file-button>${icon("folder")}Save</button></div>
-        <label>Path<input name="path" value="${escapeHtml(fileEditor.path)}" placeholder="Click Edit on a file"></label>
-        <label>Content<textarea name="content" rows="12" placeholder="File content opens here">${escapeHtml(fileEditor.content)}</textarea></label>
-      </form>
-      <div class="file-toolbox">
-        <form class="stack-form control-panel" data-folder-form data-id="${escapeHtml(server.id)}">
-          <h2>Create Folder</h2>
-          <label>Path<input name="path" placeholder="${escapeHtml(joinUiPath(currentPath, "new-folder"))}"></label>
-          <button class="ghost-button" type="submit">${icon("plus")}Create</button>
-        </form>
-        <form class="stack-form control-panel" data-upload-form data-id="${escapeHtml(server.id)}">
-          <h2>Upload</h2>
-          <label>Target folder<input name="targetPath" value="${escapeHtml(currentPath)}"></label>
-          <label>Files<input name="files" type="file" multiple></label>
-          <label>Folder<input name="folderFiles" type="file" webkitdirectory multiple></label>
-          <button class="primary-button" type="submit" data-upload-button>${icon("folder")}Upload</button>
-        </form>
-      </div>
+    <div class="file-quick-toolbar control-panel" data-drop-zone data-id="${escapeHtml(server.id)}" data-path="${escapeHtml(currentPath)}">
+      <button class="ghost-button" type="button" data-action="quick-create-folder" data-id="${escapeHtml(server.id)}" data-path="${escapeHtml(currentPath)}">${icon("folder")}Create Folder</button>
+      <button class="ghost-button" type="button" data-action="quick-create-file" data-id="${escapeHtml(server.id)}" data-path="${escapeHtml(currentPath)}">${icon("code")}Create File</button>
+      <button class="primary-button" type="button" data-action="quick-upload-open" data-id="${escapeHtml(server.id)}" data-path="${escapeHtml(currentPath)}">${icon("backup")}Upload File</button>
+      <input class="hidden" data-quick-upload-input data-id="${escapeHtml(server.id)}" data-path="${escapeHtml(currentPath)}" type="file" multiple>
+      <span class="muted" data-drop-status>Drop files here or use Upload File</span>
     </div>
     <div class="file-browser-head">
       <div>
@@ -572,21 +935,41 @@ function renderFiles(server) {
         <button class="mini-button" data-action="folder-open" data-id="${escapeHtml(server.id)}" data-path="${escapeHtml(parentUiPath(currentPath))}" ${currentPath === "." ? "disabled" : ""}>${icon("restart")}Up</button>
       </div>
     </div>
+    ${fileEditor.loaded ? renderInlineFileEditor(server) : renderFileEntries(server, entries)}
+    ${renderZipViewer(server)}
+  `;
+}
+
+function renderInlineFileEditor(server) {
+  return `
+    <form class="stack-form control-panel inline-file-editor" data-file-save-form data-id="${escapeHtml(server.id)}">
+      <div class="section-header compact">
+        <div><p class="eyebrow">Editing file</p><h2>${escapeHtml(fileEditor.path)}</h2></div>
+        <div class="row-actions">
+          <button class="mini-button" type="button" data-action="file-editor-close">${icon("ban")}Close</button>
+          <button class="primary-button" type="submit" data-save-file-button>${icon("folder")}Save</button>
+        </div>
+      </div>
+      <label>Path<input name="path" value="${escapeHtml(fileEditor.path)}"></label>
+      <label>Content<textarea name="content" rows="18">${escapeHtml(fileEditor.content)}</textarea></label>
+    </form>
+  `;
+}
+
+function renderFileEntries(server, entries) {
+  return `
     <div class="file-list">
       ${entries.map((file) => `
-        <div class="file-item">
+        <div class="file-item file-entry" data-action="${file.type === "Folder" ? "folder-open" : isZipFile(file) ? "zip-open" : "file-load"}" data-id="${escapeHtml(server.id)}" data-path="${escapeHtml(file.type === "Folder" ? file.name.replace(/\/$/, "") : file.name)}">
           <span>${escapeHtml(file.label || file.name)} <small class="muted">${escapeHtml(file.type)}</small></span>
           <div class="row-actions">
-            ${file.type === "Folder" ? `<button class="mini-button" data-action="folder-open" data-id="${escapeHtml(server.id)}" data-path="${escapeHtml(file.name.replace(/\/$/, ""))}">${icon("folder")}Open</button>` : ""}
-            ${isZipFile(file) ? `<button class="mini-button" data-action="zip-open" data-id="${escapeHtml(server.id)}" data-path="${escapeHtml(file.name)}">${icon("layer")}Open ZIP</button><button class="mini-button" data-action="zip-extract" data-id="${escapeHtml(server.id)}" data-path="${escapeHtml(file.name)}">${icon("backup")}Extract</button>` : ""}
-            ${file.type === "Folder" ? "" : `<button class="mini-button" data-action="file-load" data-id="${escapeHtml(server.id)}" data-path="${escapeHtml(file.name)}">${icon("code")}Edit</button>`}
+            ${isZipFile(file) ? `<button class="mini-button" data-action="zip-extract" data-id="${escapeHtml(server.id)}" data-path="${escapeHtml(file.name)}">${icon("backup")}Extract</button>` : ""}
             <button class="mini-button" data-action="file-delete" data-id="${escapeHtml(server.id)}" data-path="${escapeHtml(file.name.replace(/\/$/, ""))}">${icon("ban")}Delete</button>
             <span class="muted">${escapeHtml(file.size)}</span>
           </div>
         </div>
       `).join("") || `<div class="file-item"><span>This folder is empty</span><span class="muted">empty</span></div>`}
     </div>
-    ${renderZipViewer(server)}
   `;
 }
 
@@ -649,6 +1032,8 @@ function renderSettings(server) {
         <label>Disk GB<input name="disk" type="number" value="${server.disk}"></label>
         <label>Slots<input name="slots" type="number" value="${server.options?.slots || 60}"></label>
       </div>
+      <label>Backup limit<input name="backupLimit" type="number" min="0" list="backupLimitOptionsSettings" value="${server.backupLimit ?? 10}"></label>
+      <datalist id="backupLimitOptionsSettings"><option value="0"></option><option value="5"></option><option value="10"></option><option value="20"></option><option value="30"></option></datalist>
       <div class="form-grid">
         <label>Gamemode<select name="gamemode"><option ${selected("survival", server.options?.gamemode)}>survival</option><option ${selected("creative", server.options?.gamemode)}>creative</option><option ${selected("adventure", server.options?.gamemode)}>adventure</option></select></label>
         <label>Difficulty<select name="difficulty"><option ${selected("peaceful", server.options?.difficulty)}>peaceful</option><option ${selected("easy", server.options?.difficulty)}>easy</option><option ${selected("normal", server.options?.difficulty)}>normal</option><option ${selected("hard", server.options?.difficulty)}>hard</option></select></label>
@@ -700,11 +1085,12 @@ function renderSchedules(server) {
 }
 
 function renderUsers(server) {
+  const permissions = ["Console", "Files", "Backups", "Players", "Startup", "Network", "Billing", "Support"];
   return `
     <form class="stack-form control-panel" data-subuser-form data-id="${escapeHtml(server.id)}">
       <div class="section-header compact"><h2>Users</h2><button class="primary-button" type="submit">${icon("users")}Add</button></div>
-      <div class="form-grid"><label>Name<input name="name"></label><label>Role<input name="role" value="Moderator"></label></div>
-      <label>Permissions<input name="permissions" value="Start, Stop, Console, Files, Backups, Players"></label>
+      <div class="form-grid"><label>Name<input name="name"></label><label>Role<select name="role"><option>developer</option><option>moderator</option><option>billing manager</option><option>support agent</option></select></label></div>
+      <div class="toggle-grid">${permissions.map((permission) => `<label class="checkbox-row"><input name="permissions" type="checkbox" value="${escapeHtml(permission)}" checked> ${escapeHtml(permission)}</label>`).join("")}</div>
     </form>
     <div class="settings-list">${server.subusers.map((user) => `<div class="setting-item"><span>${escapeHtml(user.name)} <small class="muted">${escapeHtml(user.role)}</small></span><div class="row-actions"><strong>${escapeHtml(user.permissions?.join(", ") || user.role)}</strong><button class="mini-button" data-action="remove-resource" data-id="${escapeHtml(server.id)}" data-type="subuser" data-name="${escapeHtml(user.name)}">${icon("ban")}Remove</button></div></div>`).join("")}</div>
   `;
@@ -712,8 +1098,20 @@ function renderUsers(server) {
 
 function renderBackups(server) {
   return `
-    <div class="section-header compact"><h2>Backups</h2><button class="primary-button" data-action="backup-server" data-id="${escapeHtml(server.id)}">${icon("backup")}Create backup</button></div>
-    <div class="file-list">${server.backups.map((backup) => `<div class="file-item"><span>${escapeHtml(backup.name)}</span><span class="muted">${escapeHtml(backup.size)}</span></div>`).join("") || `<div class="file-item"><span>No backups yet</span><span class="muted">empty</span></div>`}</div>
+    <div class="smart-grid">
+      <form class="stack-form control-panel" data-backup-form data-id="${escapeHtml(server.id)}">
+        <div class="section-header compact"><h2>Smart Backups</h2><button class="primary-button" type="submit">${icon("backup")}Create restore point</button></div>
+        <label>Name<input name="name" placeholder="${escapeHtml(`${server.name}-restore-point`)}"></label>
+        <p class="muted">Creates a local restore point with file count metadata. Cloud targets can be marked here; real Google Drive/Dropbox upload needs provider credentials.</p>
+      </form>
+      <form class="stack-form control-panel" data-backup-targets-form data-id="${escapeHtml(server.id)}">
+        <h2>Backup targets</h2>
+        <label class="checkbox-row"><input name="googleDrive" type="checkbox" ${checked(server.backupTargets?.googleDrive)}> Google Drive ready</label>
+        <label class="checkbox-row"><input name="dropbox" type="checkbox" ${checked(server.backupTargets?.dropbox)}> Dropbox ready</label>
+        <button class="ghost-button" type="submit">${icon("settings")}Save targets</button>
+      </form>
+    </div>
+    <div class="file-list">${server.backups.map((backup) => `<div class="file-item"><span>${escapeHtml(backup.name)} <small class="muted">${escapeHtml(backup.createdAt || "")}</small></span><div class="row-actions"><span class="muted">${escapeHtml(backup.size)}</span><button class="mini-button" data-action="restore-backup" data-id="${escapeHtml(server.id)}" data-backup-id="${escapeHtml(backup.id)}">${icon("restart")}Restore</button></div></div>`).join("") || `<div class="file-item"><span>No restore points yet</span><span class="muted">empty</span></div>`}</div>
   `;
 }
 
@@ -738,6 +1136,11 @@ function renderInstaller(type) {
   return `
     <article class="panel-card search-panel">
       <div class="section-header"><div><p class="eyebrow">${type === "plugin" ? "Plugin Installer" : "Mod Management"}</p><h2>Search online repositories</h2></div><span class="status-pill">Modrinth + Spiget</span></div>
+      <div class="drop-zone content-drop-zone" data-content-drop data-id="${escapeHtml(server.id)}" data-type="${type}">
+        ${icon(type === "plugin" ? "package" : "code", "drop-zone-icon")}
+        <strong>Drop ${type === "plugin" ? "plugin" : "mod"} .jar files here</strong>
+        <span data-drop-status>Upload, enable/disable, and update from one place</span>
+      </div>
       <form class="search-form" data-search-form data-type="${type}">
         <label>Search<input name="query" placeholder="${type === "plugin" ? "luckperms, worldedit" : "sodium, create"}"></label>
         <label>Loader<select name="loader"><option value="${type === "plugin" ? "paper" : "fabric"}">${type === "plugin" ? "Paper" : "Fabric"}</option><option>bukkit</option><option>spigot</option><option>purpur</option><option>forge</option><option>neoforge</option><option value="">Any</option></select></label>
@@ -750,6 +1153,23 @@ function renderInstaller(type) {
     <div class="catalog-grid">
       ${catalog.map((item) => renderCatalogItem(item, type, server)).join("")}
     </div>
+    ${renderInstalledContent(server, type)}
+  `;
+}
+
+function renderInstalledContent(server, type) {
+  const list = type === "plugin" ? server.plugins || [] : server.mods || [];
+  const disabled = type === "plugin" ? server.disabledPlugins || [] : server.disabledMods || [];
+  return `
+    <article class="panel-card installed-content">
+      <div class="section-header compact"><h2>Installed ${type === "plugin" ? "plugins" : "mods"}</h2><span class="status-pill">${list.length} installed</span></div>
+      <div class="settings-list">
+        ${list.map((name) => {
+          const off = disabled.includes(name);
+          return `<div class="setting-item"><span>${escapeHtml(name)} <small class="muted">${off ? "disabled" : "enabled"}</small></span><div class="row-actions"><button class="mini-button" data-action="content-toggle" data-id="${escapeHtml(server.id)}" data-type="${type}" data-name="${escapeHtml(name)}" data-enabled="${off}">${icon(off ? "play" : "stop")}${off ? "Enable" : "Disable"}</button><button class="mini-button" data-action="content-update" data-id="${escapeHtml(server.id)}" data-type="${type}" data-name="${escapeHtml(name)}">${icon("restart")}Update check</button></div></div>`;
+        }).join("") || `<div class="setting-item"><span>No installed ${type === "plugin" ? "plugins" : "mods"} yet</span><span class="muted">empty</span></div>`}
+      </div>
+    </article>
   `;
 }
 
@@ -789,7 +1209,7 @@ function renderPlayers(server) {
   return `
     <div class="players-layout">
       <article class="panel-card">
-        <div class="section-header"><h2>Player Management</h2><button class="ghost-button" id="syncPlayersBtn" type="button">${icon("users")}Sync</button></div>
+        <div class="section-header"><h2>Player Management</h2><button class="ghost-button" id="syncPlayersBtn" data-action="sync-players" type="button">${icon("users")}Sync</button></div>
         <div class="player-table">${players.map((player) => `<div class="player-row"><div><h3>${escapeHtml(player.name)}</h3><div class="player-meta"><span>${escapeHtml(player.role)}</span><span>${escapeHtml(player.status)}</span><span>${player.whitelisted ? "whitelisted" : "not whitelisted"}</span></div></div><div class="player-actions"><button class="mini-button" data-action="player" data-player-action="op" data-id="${escapeHtml(player.id)}">${icon("shield")}OP</button><button class="mini-button" data-action="player" data-player-action="whitelist" data-id="${escapeHtml(player.id)}">${icon("users")}Whitelist</button><button class="mini-button" data-action="player" data-player-action="kick" data-id="${escapeHtml(player.id)}">${icon("stop")}Kick</button><button class="mini-button" data-action="player" data-player-action="ban" data-id="${escapeHtml(player.id)}">${icon("ban")}Ban</button><button class="mini-button" data-action="player" data-player-action="delete" data-id="${escapeHtml(player.id)}">${icon("ban")}Remove</button></div></div>`).join("")}</div>
       </article>
       <article class="panel-card">
@@ -810,10 +1230,86 @@ function renderPlayers(server) {
   `;
 }
 
+function renderOptimizer(server) {
+  const report = server.optimizer || {
+    score: 72,
+    summary: "Run a scan to analyze logs, plugins, mods, and resources.",
+    suggestions: ["Run AI optimizer scan after installing plugins or seeing TPS drops."],
+    conflicts: [],
+    removeCandidates: []
+  };
+  return `
+    <div class="smart-grid">
+      <article class="panel-card optimizer-score">
+        <div class="section-header"><div><p class="eyebrow">AI Server Optimizer</p><h2>${report.score}/100 health score</h2></div><button class="primary-button" data-action="run-optimizer" data-id="${escapeHtml(server.id)}">${icon("activity")}Run scan</button></div>
+        <div class="progress-bar tall"><span style="--value:${Math.max(5, Math.min(100, Number(report.score || 0)))}%"></span></div>
+        <p class="muted">${escapeHtml(report.summary || "")}</p>
+      </article>
+      <article class="panel-card">
+        <div class="section-header compact"><h2>Recommendations</h2></div>
+        <div class="settings-list">${(report.suggestions || []).map((item) => `<div class="setting-item"><span>${escapeHtml(item)}</span><span class="status-pill">AI</span></div>`).join("")}</div>
+      </article>
+      <article class="panel-card">
+        <div class="section-header compact"><h2>Plugin conflict scan</h2></div>
+        <div class="settings-list">${(report.conflicts || []).map((item) => `<div class="setting-item"><span>${escapeHtml(item)}</span><span class="status-pill">Check</span></div>`).join("") || `<div class="setting-item"><span>No conflicts detected yet.</span><span class="muted">clean</span></div>`}</div>
+      </article>
+      <article class="panel-card">
+        <div class="section-header compact"><h2>Remove candidates</h2></div>
+        <div class="settings-list">${(report.removeCandidates || []).map((item) => `<div class="setting-item"><span>${escapeHtml(item)}</span><span class="muted">disabled</span></div>`).join("") || `<div class="setting-item"><span>No removal candidate yet.</span><span class="muted">empty</span></div>`}</div>
+      </article>
+    </div>
+  `;
+}
+
+function fallbackAnalytics(server) {
+  const seed = server.id.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  const traffic = Array.from({ length: 12 }, (_, index) => Math.round(30 + Math.abs(Math.sin((seed + index) / 4)) * 110));
+  return { attackLevel: "normal", packetsPerSecond: Math.max(...traffic), traffic, suspicious: [], note: "Refresh analytics for live server-side packet model." };
+}
+
+function renderAnalytics(server) {
+  const analytics = analyticsCache[server.id] || fallbackAnalytics(server);
+  return `
+    <article class="panel-card">
+      <div class="section-header"><div><p class="eyebrow">DDoS Analytics</p><h2>${escapeHtml(analytics.attackLevel)} traffic</h2></div><button class="primary-button" data-action="refresh-analytics" data-id="${escapeHtml(server.id)}">${icon("network")}Refresh</button></div>
+      <div class="analytics-bars">${analytics.traffic.map((value) => `<span style="--value:${Math.min(100, Math.round((value / Math.max(...analytics.traffic)) * 100))}%"></span>`).join("")}</div>
+      <div class="dashboard-strip compact-strip">
+        ${dashboardStat("PPS peak", analytics.packetsPerSecond, "activity")}
+        ${dashboardStat("Suspicious IPs", analytics.suspicious.length, "network")}
+        ${dashboardStat("Status", analytics.attackLevel, "shield")}
+      </div>
+      <div class="settings-list">${analytics.suspicious.map((ip) => `<div class="setting-item"><span>${escapeHtml(ip)}</span><span class="status-pill">suspicious</span></div>`).join("") || `<div class="setting-item"><span>${escapeHtml(analytics.note)}</span><span class="muted">normal</span></div>`}</div>
+    </article>
+  `;
+}
+
+function renderAutoHeal(server) {
+  return `
+    <div class="smart-grid">
+      <form class="stack-form panel-card" data-auto-heal-form data-id="${escapeHtml(server.id)}">
+        <div class="section-header compact"><h2>Node Auto-Healing</h2><button class="primary-button" type="submit">${icon("restart")}Save</button></div>
+        <label class="checkbox-row"><input name="enabled" type="checkbox" ${checked(server.autoHeal?.enabled !== false)}> Auto restart crashed process</label>
+        <p class="muted">When a process exits unexpectedly, HeronPanel queues a restart and records the action.</p>
+      </form>
+      <article class="panel-card">
+        <div class="section-header compact"><h2>Heal status</h2></div>
+        <div class="settings-list">
+          <div class="setting-item"><span>Restarts</span><strong>${Number(server.autoHeal?.restarts || 0)}</strong></div>
+          <div class="setting-item"><span>Last action</span><span class="muted">${escapeHtml(server.autoHeal?.lastAction || "Ready")}</span></div>
+          <div class="setting-item"><span>Cleanup</span><span class="muted">stuck child process cleanup enabled</span></div>
+        </div>
+      </article>
+    </div>
+  `;
+}
+
 function fillCreateOptions() {
   const eggSelect = $("#eggSelect");
   const providerSelect = $("#providerSelect");
-  if (eggSelect) eggSelect.innerHTML = gameEggs.map((egg) => `<option>${escapeHtml(egg)}</option>`).join("");
+  if (eggSelect) {
+    const eggs = state?.gameTemplates?.map((template) => template.name) || gameEggs;
+    eggSelect.innerHTML = eggs.map((egg) => `<option>${escapeHtml(egg)}</option>`).join("");
+  }
   if (providerSelect && state) {
     providerSelect.innerHTML = providerCatalog
       .filter((provider) => state.settings.providers[provider.id])
@@ -860,6 +1356,9 @@ function toast(title, message) {
 }
 
 function bindStaticForms() {
+  bindSiteSettingsControls();
+  bindSiteSettingsTriggers();
+
   $("#loginForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -935,13 +1434,18 @@ function bindStaticForms() {
       ram: Number(form.get("ram")),
       cpu: Number(form.get("cpu")),
       disk: Number(form.get("disk")),
+      backupLimit: Number(form.get("backupLimit")),
       autoStart: form.get("autoStart") === "on"
     };
     try {
       await api("/api/servers", { method: "POST", body });
       $("#createModal").classList.add("hidden");
+      if (pageMode === "panel") {
+        location.href = "index.html";
+        return;
+      }
       await refresh();
-      openServer(state.selectedServerId);
+      toast("Server created", "Use Open from the dashboard when you want to control it.");
     } catch (error) {
       toast("Create failed", error.message);
     }
@@ -1019,6 +1523,34 @@ function bindDelegatedActions() {
         $("#createModal").classList.remove("hidden");
         return;
       }
+      if (action === "quick-create-folder") {
+        const currentPath = cleanUiPath(button.dataset.path);
+        const value = prompt("Folder path", joinUiPath(currentPath, "new-folder"));
+        if (!value) return;
+        const folderPath = cleanUiPath(value);
+        await api(`/api/servers/${id}/folder`, { method: "POST", body: { path: folderPath } });
+        fileBrowser.entries = [];
+        fileEditor = { path: "", content: "", loaded: false };
+        await refresh();
+        return;
+      }
+      if (action === "quick-create-file") {
+        const currentPath = cleanUiPath(button.dataset.path);
+        const value = prompt("File path", joinUiPath(currentPath, "config.yml"));
+        if (!value) return;
+        const rawPath = cleanUiPath(value);
+        const filePath = rawPath.includes("/") || currentPath === "." ? rawPath : joinUiPath(currentPath, rawPath);
+        await api(`/api/servers/${id}/file`, { method: "POST", body: { path: filePath, content: "" } });
+        fileEditor = { path: filePath, content: "", loaded: true };
+        fileBrowser.entries = [];
+        await refresh();
+        return;
+      }
+      if (action === "quick-upload-open") {
+        const input = button.closest(".file-quick-toolbar")?.querySelector("[data-quick-upload-input]");
+        input?.click();
+        return;
+      }
       if (action === "click-earn") {
         await api("/api/click", { method: "POST", body: {} });
         await refresh();
@@ -1028,6 +1560,12 @@ function bindDelegatedActions() {
         await api("/api/marketplace/server-limit", { method: "POST", body: {} });
         await refresh();
         toast("Marketplace", "Server limit upgraded by 1.");
+        return;
+      }
+      if (action === "marketplace-buy") {
+        await api("/api/marketplace/buy", { method: "POST", body: { itemId: id } });
+        await refresh();
+        toast("Marketplace", "Item purchased.");
         return;
       }
       if (action === "open-server") {
@@ -1044,25 +1582,82 @@ function bindDelegatedActions() {
         await refresh();
         return;
       }
+      if (action === "restore-backup") {
+        if (!confirm("Restore this backup? Current server files will be replaced.")) return;
+        await api(`/api/servers/${id}/backup/restore`, { method: "POST", body: { backupId: button.dataset.backupId } });
+        await refresh();
+        toast("Backup restored", "Restore point was applied.");
+        return;
+      }
+      if (action === "copy-address") {
+        await copyText(button.dataset.value);
+        toast("Copied", "Server IP copied.");
+        return;
+      }
+      if (action === "clear-console") {
+        await api(`/api/servers/${id}/logs/clear`, { method: "POST", body: {} });
+        await refresh();
+        toast("Console cleared", "Visible console history was cleared.");
+        return;
+      }
+      if (button.id === "syncPlayersBtn") {
+        await refresh();
+        toast("Players synced", "Player list refreshed.");
+        return;
+      }
+      if (action === "run-optimizer") {
+        await api(`/api/servers/${id}/optimizer/run`, { method: "POST", body: {} });
+        await refresh();
+        toast("Optimizer", "AI scan completed.");
+        return;
+      }
+      if (action === "refresh-analytics") {
+        const payload = await api(`/api/servers/${id}/analytics`);
+        analyticsCache[id] = payload.analytics;
+        renderContent();
+        toast("Analytics", "Traffic model refreshed.");
+        return;
+      }
+      if (action === "run-macro") {
+        await api(`/api/servers/${id}/macros/${button.dataset.macroId}/run`, { method: "POST", body: {} });
+        await refresh();
+        return;
+      }
+      if (action === "content-toggle") {
+        await api(`/api/servers/${id}/content/toggle`, { method: "POST", body: { type: button.dataset.type, name: button.dataset.name, enabled: button.dataset.enabled === "true" } });
+        await refresh();
+        return;
+      }
+      if (action === "content-update") {
+        await api(`/api/servers/${id}/content/update`, { method: "POST", body: { type: button.dataset.type, name: button.dataset.name } });
+        await refresh();
+        toast("Update check", "Content update check completed.");
+        return;
+      }
       if (action === "folder-open") {
         const folderPath = cleanUiPath(button.dataset.path);
         const payload = await api(`/api/servers/${id}/files?path=${encodeURIComponent(folderPath)}`);
         fileBrowser = { path: payload.path, entries: payload.files || [] };
+        fileEditor = { path: "", content: "", loaded: false };
         renderContent();
         return;
       }
       if (action === "file-load") {
         const payload = await api(`/api/servers/${id}/file?path=${encodeURIComponent(button.dataset.path)}`);
-        const form = $("[data-file-save-form]");
         fileEditor = { path: payload.path, content: payload.content, loaded: true };
-        form.elements.path.value = payload.path;
-        form.elements.content.value = payload.content;
+        renderContent();
+        return;
+      }
+      if (action === "file-editor-close") {
+        fileEditor = { path: "", content: "", loaded: false };
+        renderContent();
         return;
       }
       if (action === "file-delete") {
         if (!confirm(`Delete ${button.dataset.path}?`)) return;
         await api(`/api/servers/${id}/file/delete`, { method: "POST", body: { path: button.dataset.path } });
         fileBrowser.entries = [];
+        if (fileEditor.path === button.dataset.path) fileEditor = { path: "", content: "", loaded: false };
         await refresh();
         return;
       }
@@ -1120,6 +1715,83 @@ function bindDelegatedActions() {
     }
   });
 
+  document.addEventListener("dragover", (event) => {
+    const zone = event.target instanceof Element ? event.target.closest("[data-drop-zone], [data-content-drop]") : null;
+    if (!zone || zone.classList.contains("is-uploading")) return;
+    event.preventDefault();
+    zone.classList.add("drag-over");
+  });
+
+  document.addEventListener("dragleave", (event) => {
+    const zone = event.target instanceof Element ? event.target.closest("[data-drop-zone], [data-content-drop]") : null;
+    if (!zone || zone.contains(event.relatedTarget)) return;
+    zone.classList.remove("drag-over");
+  });
+
+  document.addEventListener("drop", async (event) => {
+    const zone = event.target instanceof Element ? event.target.closest("[data-drop-zone], [data-content-drop]") : null;
+    if (!zone || zone.classList.contains("is-uploading")) return;
+    event.preventDefault();
+    const picked = Array.from(event.dataTransfer?.files || []);
+    if (!picked.length) {
+      zone.classList.remove("drag-over");
+      toast("Upload failed", "Drop files here to upload.");
+      return;
+    }
+    const done = setDropZoneBusy(zone, "Uploading...");
+    try {
+      const uploaded = zone.matches("[data-content-drop]")
+        ? await uploadContentToServer(zone.dataset.id, zone.dataset.type, picked)
+        : await uploadFilesToServer(zone.dataset.id, zone.dataset.path, picked);
+      toast("Upload complete", `${uploaded} file${uploaded === 1 ? "" : "s"} uploaded.`);
+    } catch (error) {
+      toast("Upload failed", error.message);
+    } finally {
+      done();
+    }
+  });
+
+  document.addEventListener("input", (event) => {
+    const input = event.target instanceof Element ? event.target.closest("[data-dashboard-search]") : null;
+    if (input) {
+      dashboardQuery = input.value;
+      refreshDashboardServerList();
+      return;
+    }
+    const consoleInput = event.target instanceof Element ? event.target.closest("[data-console-search]") : null;
+    if (consoleInput) {
+      consoleSearch = consoleInput.value;
+      const query = consoleSearch.trim().toLowerCase();
+      $$(".console-line", $(".console-box") || document).forEach((line) => {
+        line.classList.toggle("hidden", Boolean(query) && !line.textContent.toLowerCase().includes(query));
+      });
+    }
+  });
+
+  document.addEventListener("change", async (event) => {
+    const quickUpload = event.target instanceof Element ? event.target.closest("[data-quick-upload-input]") : null;
+    if (quickUpload) {
+      const picked = Array.from(quickUpload.files || []);
+      if (!picked.length) return;
+      const zone = quickUpload.closest("[data-drop-zone]");
+      const done = setDropZoneBusy(zone, "Uploading...");
+      try {
+        const uploaded = await uploadFilesToServer(quickUpload.dataset.id, quickUpload.dataset.path, picked);
+        toast("Upload complete", `${uploaded} file${uploaded === 1 ? "" : "s"} uploaded.`);
+      } catch (error) {
+        toast("Upload failed", error.message);
+      } finally {
+        quickUpload.value = "";
+        done();
+      }
+      return;
+    }
+    const filter = event.target instanceof Element ? event.target.closest("[data-dashboard-filter]") : null;
+    if (!filter) return;
+    dashboardStatusFilter = filter.value || "all";
+    refreshDashboardServerList();
+  });
+
   document.addEventListener("submit", async (event) => {
     const server = selectedServer();
     const form = event.target;
@@ -1151,6 +1823,20 @@ function bindDelegatedActions() {
         await api(`/api/servers/${form.dataset.id}/folder`, { method: "POST", body: { path: data.get("path") } });
         fileBrowser.entries = [];
         await refresh();
+      } else if (form.matches("[data-new-file-form]")) {
+        event.preventDefault();
+        const data = new FormData(form);
+        const rawPath = cleanUiPath(data.get("path"));
+        if (!rawPath || rawPath === ".") {
+          toast("Create file failed", "Enter a file path first.");
+          return;
+        }
+        const currentPath = cleanUiPath(form.dataset.path);
+        const filePath = rawPath.includes("/") || currentPath === "." ? rawPath : joinUiPath(currentPath, rawPath);
+        await api(`/api/servers/${form.dataset.id}/file`, { method: "POST", body: { path: filePath, content: "" } });
+        fileEditor = { path: filePath, content: "", loaded: true };
+        fileBrowser.entries = [];
+        await refresh();
       } else if (form.matches("[data-upload-form]")) {
         event.preventDefault();
         const data = new FormData(form);
@@ -1163,21 +1849,11 @@ function bindDelegatedActions() {
           return;
         }
         const done = setButtonBusy(form.querySelector("[data-upload-button]"), "Uploading...");
-        const files = [];
-        for (const file of picked.slice(0, 120)) {
-          files.push({
-            name: file.name,
-            relativePath: file.webkitRelativePath || file.name,
-            dataUrl: await readFileAsDataUrl(file)
-          });
-        }
         try {
-          await api(`/api/servers/${form.dataset.id}/upload`, { method: "POST", body: { targetPath: data.get("targetPath"), files } });
+          await uploadFilesToServer(form.dataset.id, data.get("targetPath"), picked);
         } finally {
           done();
         }
-        fileBrowser.entries = [];
-        await refresh();
       } else if (form.matches("[data-identity-form]")) {
         event.preventDefault();
         const data = new FormData(form);
@@ -1191,7 +1867,7 @@ function bindDelegatedActions() {
           method: "POST",
           body: {
             name: data.get("name"), motd: data.get("motd"), ram: Number(data.get("ram")), cpu: Number(data.get("cpu")), disk: Number(data.get("disk")),
-            slots: Number(data.get("slots")), gamemode: data.get("gamemode"), difficulty: data.get("difficulty"), spawnProtection: Number(data.get("spawnProtection")),
+            backupLimit: Number(data.get("backupLimit")), slots: Number(data.get("slots")), gamemode: data.get("gamemode"), difficulty: data.get("difficulty"), spawnProtection: Number(data.get("spawnProtection")),
             timezone: data.get("timezone"), whitelist: data.get("whitelist") === "on", pvp: data.get("pvp") === "on", commandBlocks: data.get("commandBlocks") === "on",
             cracked: data.get("cracked") === "on", fly: data.get("fly") === "on", monsters: data.get("monsters") === "on", animals: data.get("animals") === "on", nether: data.get("nether") === "on"
           }
@@ -1201,6 +1877,21 @@ function bindDelegatedActions() {
         event.preventDefault();
         const data = new FormData(form);
         await api(`/api/servers/${form.dataset.id}/network`, { method: "POST", body: { port: data.get("port"), primary: data.get("primary") === "on" } });
+        await refresh();
+      } else if (form.matches("[data-backup-form]")) {
+        event.preventDefault();
+        const data = new FormData(form);
+        await api(`/api/servers/${form.dataset.id}/backup`, { method: "POST", body: { name: data.get("name") } });
+        await refresh();
+      } else if (form.matches("[data-backup-targets-form]")) {
+        event.preventDefault();
+        const data = new FormData(form);
+        await api(`/api/servers/${form.dataset.id}/backup/settings`, { method: "POST", body: { googleDrive: data.get("googleDrive") === "on", dropbox: data.get("dropbox") === "on" } });
+        await refresh();
+      } else if (form.matches("[data-auto-heal-form]")) {
+        event.preventDefault();
+        const data = new FormData(form);
+        await api(`/api/servers/${form.dataset.id}/auto-heal`, { method: "POST", body: { enabled: data.get("enabled") === "on" } });
         await refresh();
       } else if (form.matches("[data-database-form]")) {
         event.preventDefault();
@@ -1220,7 +1911,12 @@ function bindDelegatedActions() {
       } else if (form.matches("[data-subuser-form]")) {
         event.preventDefault();
         const data = new FormData(form);
-        await api(`/api/servers/${form.dataset.id}/subusers`, { method: "POST", body: { name: data.get("name"), role: data.get("role"), permissions: data.get("permissions") } });
+        await api(`/api/servers/${form.dataset.id}/subusers`, { method: "POST", body: { name: data.get("name"), role: data.get("role"), permissions: data.getAll("permissions").join(", ") } });
+        await refresh();
+      } else if (form.matches("[data-macro-form]")) {
+        event.preventDefault();
+        const data = new FormData(form);
+        await api(`/api/servers/${form.dataset.id}/macros`, { method: "POST", body: { name: data.get("name"), command: data.get("command") } });
         await refresh();
       } else if (form.matches("[data-search-form]")) {
         event.preventDefault();
@@ -1253,6 +1949,8 @@ function bindDelegatedActions() {
 async function init() {
   bindStaticForms();
   bindDelegatedActions();
+  applyTheme();
+  applyIndexBackground();
   activeTab = location.hash.replace("#", "") || "console";
   if (!localStorage.getItem(tokenKey)) {
     showAuth();
