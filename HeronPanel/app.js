@@ -704,6 +704,58 @@ function renderDashboard() {
         </article>
       </aside>
     </section>
+    ${renderNodeManager()}
+  `;
+}
+
+function renderNodeManager() {
+  const nodes = state.nodes || [];
+  return `
+    <section class="panel-card node-manager-card">
+      <div class="section-header">
+        <div>
+          <p class="eyebrow">Real node system</p>
+          <h2>Connect VPS nodes</h2>
+          <p class="muted">Create a node, copy the install command, run it on the VPS. Heartbeat makes it online automatically.</p>
+        </div>
+      </div>
+      <form class="node-create-form" id="nodeCreateForm">
+        <label>Node name<input name="name" placeholder="Mumbai Node 1" required></label>
+        <label>Node IP / Domain<input name="fqdn" placeholder="node1.example.com" required></label>
+        <label>Region<input name="region" placeholder="India - Mumbai" value="India - Mumbai" required></label>
+        <button class="primary-button" type="submit">${icon("plus")}Create Node</button>
+      </form>
+      <div class="node-grid">
+        ${nodes.map(renderNodeCard).join("") || `<div class="empty-state compact-empty"><h2>No nodes connected</h2><p class="muted">Create a node and run the generated command on your VPS.</p></div>`}
+      </div>
+    </section>
+  `;
+}
+
+function renderNodeCard(node) {
+  const online = node.status === "online";
+  return `
+    <article class="node-card">
+      <div class="node-card-head">
+        <div>
+          <h3>${escapeHtml(node.name)}</h3>
+          <p class="muted">${escapeHtml(node.fqdn)} · ${escapeHtml(node.region || "Unknown region")}</p>
+        </div>
+        <span class="status-pill ${online ? "good" : "warn"}">${online ? "ONLINE" : "PENDING"}</span>
+      </div>
+      <div class="mini-grid">
+        <span>Last seen <strong>${node.lastSeen ? new Date(node.lastSeen).toLocaleString("en-IN") : "Never"}</strong></span>
+        <span>Host <strong>${escapeHtml(node.stats?.hostname || "-")}</strong></span>
+        <span>Free RAM <strong>${node.stats?.memoryFree ? Math.round(node.stats.memoryFree / 1024 / 1024).toLocaleString("en-IN") + " MB" : "-"}</strong></span>
+      </div>
+      <label class="install-command-label">Install command
+        <textarea readonly rows="3">${escapeHtml(node.installCommand || "Create a new node to generate an install command.")}</textarea>
+      </label>
+      <div class="row-actions">
+        <button class="ghost-button" data-action="copy-node-command" data-command="${escapeHtml(node.installCommand || "")}" type="button">${icon("settings")}Copy command</button>
+        <button class="danger-button" data-action="delete-node" data-node-id="${escapeHtml(node.id)}" type="button">${icon("ban")}Delete</button>
+      </div>
+    </article>
   `;
 }
 
@@ -1306,6 +1358,7 @@ function renderAutoHeal(server) {
 function fillCreateOptions() {
   const eggSelect = $("#eggSelect");
   const providerSelect = $("#providerSelect");
+  const nodeSelect = $("#nodeSelect");
   if (eggSelect) {
     const eggs = state?.gameTemplates?.map((template) => template.name) || gameEggs;
     eggSelect.innerHTML = eggs.map((egg) => `<option>${escapeHtml(egg)}</option>`).join("");
@@ -1315,6 +1368,13 @@ function fillCreateOptions() {
       .filter((provider) => state.settings.providers[provider.id])
       .map((provider) => `<option value="${provider.id}">${escapeHtml(provider.name)}</option>`)
       .join("");
+  }
+  if (nodeSelect && state) {
+    const nodes = state.nodes || [];
+    nodeSelect.innerHTML = [
+      `<option value="">Auto-select online node</option>`,
+      ...nodes.map((node) => `<option value="${escapeHtml(node.id)}">${escapeHtml(node.name)} · ${escapeHtml(node.status)}</option>`)
+    ].join("");
   }
   $$(".paper-version-select").forEach(fillPaperVersionSelect);
   loadPaperVersions();
@@ -1428,6 +1488,7 @@ function bindStaticForms() {
       name: form.get("name"),
       egg: form.get("egg"),
       provider: form.get("provider"),
+      nodeId: form.get("nodeId"),
       paperVersion: form.get("paperVersion") || "latest",
       region: form.get("region"),
       runtime: form.get("runtime"),
@@ -1521,6 +1582,18 @@ function bindDelegatedActions() {
     try {
       if (button.id === "pickerCreateBtn" || action === "open-create") {
         $("#createModal").classList.remove("hidden");
+        return;
+      }
+      if (action === "copy-node-command") {
+        await copyText(button.dataset.command || "");
+        toast("Node command copied", "Run it on your VPS as root or a Docker-enabled user.");
+        return;
+      }
+      if (action === "delete-node") {
+        if (!confirm("Delete this node? Servers assigned to it will be detached.")) return;
+        await api(`/api/nodes/${button.dataset.nodeId}/delete`, { method: "POST", body: {} });
+        await refresh();
+        toast("Node deleted", "Node was removed from the panel.");
         return;
       }
       if (action === "quick-create-folder") {
@@ -1796,7 +1869,23 @@ function bindDelegatedActions() {
     const server = selectedServer();
     const form = event.target;
     try {
-      if (form.matches("[data-command-form]")) {
+      if (form.matches("#nodeCreateForm")) {
+        event.preventDefault();
+        const data = new FormData(form);
+        const payload = await api("/api/nodes", {
+          method: "POST",
+          body: {
+            name: data.get("name"),
+            fqdn: data.get("fqdn"),
+            region: data.get("region")
+          }
+        });
+        if (payload.installCommand) {
+          await copyText(payload.installCommand);
+          toast("Node created", "Install command copied. Run it on your VPS to bring the node online.");
+        }
+        await refresh();
+      } else if (form.matches("[data-command-form]")) {
         event.preventDefault();
         const command = form.elements.command.value.trim();
         if (!command) return;

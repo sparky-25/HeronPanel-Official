@@ -282,6 +282,8 @@ function defaultState() {
     marketplaceItems,
     marketplacePurchases: [],
     servers: [],
+    nodes: [],
+    nodeCommands: [],
     players: [],
     users: [adminUser()],
     activity: ["Backend initialized. Panel state is stored in data/panel-state.json."]
@@ -517,6 +519,8 @@ function mergeState(base, saved) {
   merged.marketplaceItems = base.marketplaceItems;
   merged.marketplacePurchases = saved.marketplacePurchases || base.marketplacePurchases;
   merged.servers = saved.servers || base.servers;
+  merged.nodes = saved.nodes || base.nodes;
+  merged.nodeCommands = saved.nodeCommands || base.nodeCommands;
   merged.players = saved.players || base.players;
   merged.users = saved.users || base.users;
   merged.activity = saved.activity || base.activity;
@@ -589,11 +593,13 @@ function publicState(viewer = null) {
     gameTemplates: gameTemplates.map(({ id, name, category, runtime, description }) => ({ id, name, category, runtime, description })),
     marketplaceItems,
     users: isAdmin(viewer) ? state.users.map(sanitizeUser) : viewer ? [sanitizeUser(viewer)] : [],
+    nodes: isAdmin(viewer) ? (state.nodes || []).map(publicNode) : [],
     backend: {
       connected: true,
       storage: relative(root, statePath),
       runningProcesses: processes.size,
-      mode: "node-rest-filesystem"
+      mode: "node-rest-filesystem",
+      onlineNodes: (state.nodes || []).filter((node) => node.status === "online").length
     }
   };
 }
@@ -606,6 +612,69 @@ function addActivity(message) {
 function addLog(server, message) {
   server.console.push(nowLine(message));
   server.console = server.console.slice(-120);
+}
+
+function publicNode(node) {
+  return {
+    id: node.id,
+    name: node.name,
+    fqdn: node.fqdn,
+    region: node.region,
+    status: node.status,
+    lastSeen: node.lastSeen,
+    stats: node.stats || {},
+    createdAt: node.createdAt,
+    installCommand: node.installCommand || ""
+  };
+}
+
+function panelBaseUrl(request) {
+  const proto = request.headers["x-forwarded-proto"] || (request.socket.encrypted ? "https" : "http");
+  const hostHeader = request.headers["x-forwarded-host"] || request.headers.host || `127.0.0.1:${port}`;
+  return `${proto}://${hostHeader}`;
+}
+
+function buildNodeInstallCommand(request, node, token) {
+  const base = panelBaseUrl(request);
+  return `curl -fsSL ${base}/api/node-agent/install.sh | HERON_API_URL=${base} HERON_NODE_ID=${node.id} HERON_NODE_TOKEN=${token} bash`;
+}
+
+function findNode(id) {
+  const node = state.nodes.find((item) => item.id === id);
+  if (!node) throw new Error("Node not found");
+  return node;
+}
+
+function firstOnlineNode() {
+  return (state.nodes || []).find((node) => node.status === "online") || null;
+}
+
+function queueNodeCommand(nodeId, command) {
+  const queued = {
+    id: uid("cmd"),
+    nodeId,
+    createdAt: new Date().toISOString(),
+    ...command
+  };
+  state.nodeCommands.push(queued);
+  return queued;
+}
+
+function applyNodeResults(results = []) {
+  for (const result of results) {
+    const server = state.servers.find((item) => item.id === result.serverId);
+    if (!server) continue;
+    if (result.ok && result.action === "start") {
+      server.status = "running";
+      addLog(server, `Node command completed: Docker container started on ${result.nodeId}.`);
+    } else if (result.ok && (result.action === "stop" || result.action === "kill")) {
+      server.status = "stopped";
+      addLog(server, `Node command completed: Docker container stopped on ${result.nodeId}.`);
+    } else {
+      server.status = "stopped";
+      addLog(server, `Node command failed: ${result.error || "unknown error"}`);
+    }
+  }
 }
 
 function addLogChunk(server, chunk, prefix = "") {
@@ -679,19 +748,22 @@ async function createServerRecord(input, spendCoins = true) {
   const backupLimit = normalizeBackupLimit(input.backupLimit, 10);
   const port = 25565 + state.servers.length;
   const paperVersion = normalizePaperVersion(input.paperVersion);
+  const assignedNode = input.nodeId ? state.nodes.find((node) => node.id === input.nodeId) : firstOnlineNode();
   const server = {
     id,
     name,
     egg: template.name,
     template: template.id,
     provider: input.provider || "local",
+    nodeId: assignedNode?.id || "",
+    nodeName: assignedNode?.name || "",
     region: input.region || "India - Mumbai",
     runtime: input.runtime || template.runtime,
     status: "stopped",
     ram,
     cpu,
     disk,
-    allocation: `127.0.0.1:${port}`,
+    allocation: `${assignedNode?.fqdn || "127.0.0.1"}:${port}`,
     ports: [String(port), String(port + 1000)],
     owner: "admin",
     createdAt: new Date().toISOString(),
@@ -1216,6 +1288,32 @@ async function ensureRealMinecraftJar(server) {
 }
 
 async function startServer(server) {
+  if (server.nodeId) {
+    const node = findNode(server.nodeId);
+    if (node.status !== "online") throw new Error(`Node ${node.name} is not online`);
+    const command = templateCommand(server);
+    queueNodeCommand(node.id, {
+      action: "start",
+      serverId: server.id,
+      image: server.startup?.image || "node:22-bookworm-slim",
+      name: server.name,
+      command,
+      env: {
+        SERVER_ID: server.id,
+        SERVER_NAME: server.name,
+        SERVER_PORT: primaryPort(server),
+        SERVER_MEMORY: String(server.ram * 1024)
+      },
+      resources: {
+        ramMb: Number(server.ram || 1) * 1024,
+        cpuPercent: Number(server.cpu || 100),
+        diskGb: Number(server.disk || 10)
+      }
+    });
+    server.status = "starting";
+    addLog(server, `Start queued on node ${node.name}.`);
+    return;
+  }
   if (processes.has(server.id)) return;
   await ensureServerFiles(server);
   try {
@@ -1284,6 +1382,17 @@ async function startServer(server) {
 }
 
 async function stopServer(server, force = false) {
+  if (server.nodeId) {
+    const node = findNode(server.nodeId);
+    queueNodeCommand(node.id, {
+      action: force ? "kill" : "stop",
+      serverId: server.id,
+      name: server.name
+    });
+    server.status = "stopping";
+    addLog(server, `Stop queued on node ${node.name}.`);
+    return;
+  }
   const child = processes.get(server.id);
   if (child) {
     expectedStops.add(server.id);
@@ -1616,6 +1725,132 @@ function sendError(response, error, status = 400) {
   sendJson(response, { ok: false, error: error.message || String(error) }, error.status || status);
 }
 
+function nodeAgentInstallScript() {
+  return `#!/usr/bin/env bash
+set -euo pipefail
+
+: "\${HERON_API_URL:?Set HERON_API_URL}"
+: "\${HERON_NODE_ID:?Set HERON_NODE_ID}"
+: "\${HERON_NODE_TOKEN:?Set HERON_NODE_TOKEN}"
+
+if ! command -v docker >/dev/null 2>&1; then
+  curl -fsSL https://get.docker.com | sh
+fi
+
+mkdir -p /opt/heron-node
+cat >/opt/heron-node/agent.mjs <<'NODE'
+import { request } from "node:http";
+import { request as httpsRequest } from "node:https";
+import { execFile } from "node:child_process";
+import os from "node:os";
+
+const apiUrl = process.env.HERON_API_URL;
+const nodeId = process.env.HERON_NODE_ID;
+const token = process.env.HERON_NODE_TOKEN;
+let results = [];
+
+function run(cmd, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(cmd, args, { timeout: options.timeout || 120000 }, (error, stdout, stderr) => {
+      if (error) reject(new Error(stderr || stdout || error.message));
+      else resolve(String(stdout || "").trim());
+    });
+  });
+}
+
+function post(path, body) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(path, apiUrl);
+    const client = url.protocol === "https:" ? httpsRequest : request;
+    const payload = JSON.stringify(body);
+    const req = client(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", "content-length": Buffer.byteLength(payload) }
+    }, (res) => {
+      let text = "";
+      res.on("data", (chunk) => text += chunk);
+      res.on("end", () => {
+        if (res.statusCode >= 400) reject(new Error(text));
+        else resolve(JSON.parse(text || "{}"));
+      });
+    });
+    req.on("error", reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
+async function startContainer(command) {
+  const name = "heron-" + command.serverId;
+  await run("docker", ["rm", "-f", name], { timeout: 30000 }).catch(() => "");
+  await run("docker", ["pull", command.image], { timeout: 300000 });
+  const envArgs = Object.entries(command.env || {}).flatMap(([key, value]) => ["-e", key + "=" + value]);
+  const memory = String(Math.max(256, Number(command.resources?.ramMb || 1024))) + "m";
+  const cpus = String(Math.max(0.1, Number(command.resources?.cpuPercent || 100) / 100));
+  await run("docker", [
+    "run", "-d", "--name", name, "--restart", "unless-stopped",
+    "--memory", memory, "--cpus", cpus,
+    "-v", "/opt/heron-node/servers/" + command.serverId + ":/data",
+    "-w", "/data",
+    ...envArgs,
+    command.image,
+    "sh", "-lc", command.command || "while true; do sleep 3600; done"
+  ], { timeout: 120000 });
+}
+
+async function stopContainer(command) {
+  const name = "heron-" + command.serverId;
+  await run("docker", ["stop", name], { timeout: 30000 }).catch(() => "");
+}
+
+async function execute(command) {
+  try {
+    if (command.action === "start") await startContainer(command);
+    if (command.action === "stop" || command.action === "kill") await stopContainer(command);
+    results.push({ id: command.id, nodeId, serverId: command.serverId, action: command.action, ok: true });
+  } catch (error) {
+    results.push({ id: command.id, nodeId, serverId: command.serverId, action: command.action, ok: false, error: error.message });
+  }
+}
+
+async function heartbeat() {
+  const payload = {
+    token,
+    stats: {
+      hostname: os.hostname(),
+      platform: os.platform(),
+      uptime: os.uptime(),
+      load: os.loadavg(),
+      memoryTotal: os.totalmem(),
+      memoryFree: os.freemem()
+    },
+    results
+  };
+  results = [];
+  const response = await post("/api/nodes/" + nodeId + "/heartbeat", payload);
+  for (const command of response.commands || []) await execute(command);
+}
+
+setInterval(() => heartbeat().catch((error) => console.error("[heron-node]", error.message)), 5000);
+heartbeat().catch((error) => console.error("[heron-node]", error.message));
+NODE
+
+docker rm -f heron-node-agent >/dev/null 2>&1 || true
+docker run -d \\
+  --name heron-node-agent \\
+  --restart unless-stopped \\
+  -e HERON_API_URL="\${HERON_API_URL}" \\
+  -e HERON_NODE_ID="\${HERON_NODE_ID}" \\
+  -e HERON_NODE_TOKEN="\${HERON_NODE_TOKEN}" \\
+  -v /var/run/docker.sock:/var/run/docker.sock \\
+  -v /opt/heron-node:/opt/heron-node \\
+  -w /opt/heron-node \\
+  node:22-bookworm-slim node agent.mjs
+
+echo "Heron node agent installed. Check: docker logs -f heron-node-agent"
+`;
+}
+
 async function handleApi(request, response, url) {
   const path = url.pathname;
   try {
@@ -1677,7 +1912,83 @@ async function handleApi(request, response, url) {
       return;
     }
 
+    if (request.method === "GET" && path === "/api/node-agent/install.sh") {
+      response.writeHead(200, { "content-type": "text/x-shellscript; charset=utf-8" });
+      response.end(nodeAgentInstallScript());
+      return;
+    }
+
+    const heartbeatMatch = path.match(/^\/api\/nodes\/([^/]+)\/heartbeat$/);
+    if (request.method === "POST" && heartbeatMatch) {
+      const body = await readBody(request);
+      const node = findNode(heartbeatMatch[1]);
+      if (node.tokenHash !== hashSecret(body.token || "")) {
+        const error = new Error("Invalid node token");
+        error.status = 401;
+        throw error;
+      }
+      applyNodeResults(Array.isArray(body.results) ? body.results : []);
+      node.status = "online";
+      node.lastSeen = new Date().toISOString();
+      node.stats = body.stats || {};
+      const commands = state.nodeCommands.filter((command) => command.nodeId === node.id);
+      state.nodeCommands = state.nodeCommands.filter((command) => command.nodeId !== node.id);
+      await persist();
+      sendJson(response, { ok: true, commands });
+      return;
+    }
+
     const currentUser = authenticate(request);
+
+    if (request.method === "GET" && path === "/api/nodes") {
+      requireAdmin(currentUser);
+      sendJson(response, { ok: true, nodes: (state.nodes || []).map(publicNode) });
+      return;
+    }
+
+    if (request.method === "POST" && path === "/api/nodes") {
+      requireAdmin(currentUser);
+      const body = await readBody(request);
+      const token = randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, "");
+      const node = {
+        id: uid("node"),
+        name: String(body.name || "New Node").trim(),
+        fqdn: String(body.fqdn || "0.0.0.0").trim(),
+        region: String(body.region || "India - Mumbai").trim(),
+        status: "pending",
+        tokenHash: hashSecret(token),
+        installCommand: "",
+        stats: {},
+        createdAt: new Date().toISOString(),
+        lastSeen: ""
+      };
+      node.installCommand = buildNodeInstallCommand(request, node, token);
+      state.nodes.unshift(node);
+      addActivity(`Node created: ${node.name}. Run install command to bring it online.`);
+      await persist();
+      sendJson(response, { ok: true, node: publicNode(node), token, installCommand: node.installCommand, state: publicState(currentUser) });
+      return;
+    }
+
+    const nodeDeleteMatch = path.match(/^\/api\/nodes\/([^/]+)\/delete$/);
+    if (request.method === "POST" && nodeDeleteMatch) {
+      requireAdmin(currentUser);
+      const node = findNode(nodeDeleteMatch[1]);
+      state.nodes = state.nodes.filter((item) => item.id !== node.id);
+      state.nodeCommands = state.nodeCommands.filter((command) => command.nodeId !== node.id);
+      for (const server of state.servers) {
+        if (server.nodeId === node.id) {
+          server.nodeId = "";
+          server.nodeName = "";
+          server.status = "stopped";
+          addLog(server, `Node ${node.name} was removed; server detached.`);
+        }
+      }
+      addActivity(`Node removed: ${node.name}.`);
+      await persist();
+      sendJson(response, { ok: true, state: publicState(currentUser) });
+      return;
+    }
 
     if (request.method === "POST" && path === "/api/account/settings") {
       const body = await readBody(request);
