@@ -2,7 +2,7 @@
 
 HeronPanel - The free game server control panel for users, networks, and game service providers.
 
-HeronPanel is a Minecraft server management panel with a Node.js backend, real server folders, Paper version selection, live console, file manager, plugin/mod installer, player management, coins system, marketplace, and admin controls.
+HeronPanel is a game server management panel with a Node.js backend, real server folders, one-click game templates, Paper version selection, live console, file manager, plugin/mod installer, player management, coins system, marketplace, optimizer tools, smart backups, and admin controls.
 
 ## Features
 
@@ -10,11 +10,14 @@ HeronPanel is a Minecraft server management panel with a Node.js backend, real s
 - Login and register system
 - Admin and normal user accounts
 - Coins system
-- Create Minecraft servers from the dashboard
+- One-click game templates for Minecraft, Rust, CS2, Palworld, Node.js bots, Python bots, and Discord bots
+- Create servers from the dashboard
 - Marketplace server limit upgrade
+- Marketplace items for themes, plugin bundles, startup templates, and server packs
 - Real Paper `server.jar` download and startup
 - Paper version selector from `1.19` to latest
 - Live console output from the running server process
+- Console search, error highlighting, command suggestions, and command macros
 - Start, stop, and restart controls
 - Send console commands from the panel
 - File manager
@@ -23,12 +26,19 @@ HeronPanel is a Minecraft server management panel with a Node.js backend, real s
 - ZIP browser and extractor
 - Plugin installer
 - Mod installer
+- Drag and drop plugin/mod uploads
+- Enable, disable, and update-check installed plugins/mods
 - Online plugin/mod search with Modrinth and Spiget
+- AI server optimizer with log/resource/plugin suggestions
 - Player management
 - OP, whitelist, kick, ban, and remove actions
 - Custom server icon
 - Custom MOTD
 - Network port management
+- Team roles with granular permissions
+- Smart restore point backups
+- DDoS-style traffic analytics dashboard
+- Node auto-healing with crash restart queue
 - Databases, schedules, users, backups, and startup settings
 - Premium black and white panel theme
 
@@ -40,14 +50,15 @@ Install these before running HeronPanel:
 - Java 17 or Java 21
 - Git
 - Internet connection for the first Paper server download
+- SteamCMD for real Rust, CS2, or Palworld binaries
+- Python 3 for Python bot templates
 
 Latest Paper versions usually require Java 21. Older Paper versions such as 1.19 usually work with Java 17.
 
 ## Local Installation
 
 ```bash
-git clone https://github.com/sparky-25/HeronPanel-Official.git
-cd HeronPanel-Official
+git clone https://github.com/sparky-25/HeronPanel-Official.git HeronPanel
 cd HeronPanel
 node server.mjs
 ```
@@ -85,8 +96,7 @@ sudo apt install -y git nodejs npm openjdk-21-jdk
 Clone HeronPanel:
 
 ```bash
-git clone https://github.com/sparky-25/HeronPanel-Official.git
-cd HeronPanel-Official
+git clone https://github.com/sparky-25/HeronPanel-Official.git HeronPanel
 cd HeronPanel
 ```
 
@@ -250,8 +260,7 @@ GitHub itself does not run Minecraft servers directly. You can use GitHub in the
 To run from GitHub on any machine:
 
 ```bash
-git clone https://github.com/sparky-25/HeronPanel-Official.git
-cd HeronPanel-Official
+git clone https://github.com/sparky-25/HeronPanel-Official.git HeronPanel
 cd HeronPanel
 node server.mjs
 ```
@@ -261,6 +270,47 @@ For cloud/VPS:
 ```bash
 HOST=0.0.0.0 PORT=4173 node server.mjs
 ```
+
+## Domain And IP Setup
+
+HeronPanel includes a helper script for website domains and Minecraft IP setup:
+
+```bash
+bash domain-ip.sh
+```
+
+The script gives these options:
+
+- `Minecraft IP Setup`
+- `Website Custom Domain Setup`
+- `Check installed tools`
+
+For the panel website, use a Cloudflare Tunnel public hostname pointing to:
+
+```txt
+http://127.0.0.1:4173
+```
+
+For Docker tunnel setup, paste your Cloudflare Tunnel token into the script. It prints a Docker command and creates:
+
+```txt
+docker-compose.cloudflared.yml
+```
+
+Then run:
+
+```bash
+docker compose -f docker-compose.cloudflared.yml up -d
+```
+
+For a normal Minecraft public IP, use a real VPS with DNS-only Cloudflare records:
+
+```txt
+A record: play.example.com -> YOUR_VPS_IP
+SRV: _minecraft._tcp.play.example.com -> play.example.com:25565
+```
+
+Cloudflare Tunnel can proxy TCP, but normal Minecraft players usually need a public TCP address or a Cloudflare Access TCP client setup.
 
 ## Create A Server
 
@@ -372,20 +422,6 @@ HOST=0.0.0.0 PORT=4173 node server.mjs
 
 For real public Minecraft hosting, use a VPS. CodeSandbox and GitHub Codespaces are mainly for development/testing because Minecraft needs a stable TCP port like `25565`.
 
-## Domain & IP Setup
-
-```bash
-bash domain-ip.sh
-```
-
 ## License
 
 HeronPanel Official is provided as a free game server control panel project.
-
-## Credits
-Code By **DhwaJXD** & **ManyaXD**
-
----
-
-*Gmail:-* zerakubusiness@gmail.com
-*Discord:-* hahahahaha413 - manya_pro
