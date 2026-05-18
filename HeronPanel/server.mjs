@@ -28,6 +28,13 @@ const host = process.env.HOST || "127.0.0.1";
 const runtimeCommand = "java -Xms128M -Xmx{{SERVER_MEMORY}}M -jar server.jar nogui";
 const paperApiBase = "https://fill.papermc.io/v3/projects/paper";
 const paperUserAgent = "HeronPanel/1.0 (support@heronpanel.local)";
+const renewalDurationMs = 24 * 60 * 60 * 1000;
+const renewalBonusMs = 45 * 60 * 1000;
+const renewalAds = [
+  "https://windowthrilling.com/dxhtrfx4k?key=7328a3ab6644caef163f57846d223539",
+  "https://windowthrilling.com/ixk8gxw2b?key=0b42b1476b490bce9e7e3c892de9b4c6",
+  "https://windowthrilling.com/v0av5ep6h?key=348f881f25d4b68be4bef5ad5e650dd2"
+];
 const paperVersionFallback = [
   "1.21.11",
   "1.21.10",
@@ -282,8 +289,6 @@ function defaultState() {
     marketplaceItems,
     marketplacePurchases: [],
     servers: [],
-    nodes: [],
-    nodeCommands: [],
     players: [],
     users: [adminUser()],
     activity: ["Backend initialized. Panel state is stored in data/panel-state.json."]
@@ -519,8 +524,6 @@ function mergeState(base, saved) {
   merged.marketplaceItems = base.marketplaceItems;
   merged.marketplacePurchases = saved.marketplacePurchases || base.marketplacePurchases;
   merged.servers = saved.servers || base.servers;
-  merged.nodes = saved.nodes || base.nodes;
-  merged.nodeCommands = saved.nodeCommands || base.nodeCommands;
   merged.players = saved.players || base.players;
   merged.users = saved.users || base.users;
   merged.activity = saved.activity || base.activity;
@@ -538,7 +541,7 @@ function mergeState(base, saved) {
       allocation,
       startup: {
         command: !server.startup?.command || server.startup.command.includes("minecraft-local-server.mjs") ? template.command : server.startup.command,
-        image: server.startup?.image && server.startup.image !== "local-node-runtime" ? server.startup.image : template.image,
+        image: server.startup?.image && !["local-node-runtime", "remote-node-runtime"].includes(server.startup.image) ? server.startup.image : template.image,
         variables: {
           ...(server.startup?.variables || {}),
           SERVER_ID: server.id,
@@ -563,7 +566,11 @@ function mergeState(base, saved) {
         googleDrive: Boolean(server.backupTargets?.googleDrive),
         dropbox: Boolean(server.backupTargets?.dropbox)
       },
-      optimizer: server.optimizer || null
+      optimizer: server.optimizer || null,
+      expiresAt: server.expiresAt || new Date(Date.now() + renewalDurationMs).toISOString(),
+      renewal: {
+        watchedAds: Array.isArray(server.renewal?.watchedAds) ? server.renewal.watchedAds : []
+      }
     };
   });
   state = merged;
@@ -593,13 +600,11 @@ function publicState(viewer = null) {
     gameTemplates: gameTemplates.map(({ id, name, category, runtime, description }) => ({ id, name, category, runtime, description })),
     marketplaceItems,
     users: isAdmin(viewer) ? state.users.map(sanitizeUser) : viewer ? [sanitizeUser(viewer)] : [],
-    nodes: isAdmin(viewer) ? (state.nodes || []).map(publicNode) : [],
     backend: {
       connected: true,
       storage: relative(root, statePath),
       runningProcesses: processes.size,
-      mode: "node-rest-filesystem",
-      onlineNodes: (state.nodes || []).filter((node) => node.status === "online").length
+      mode: "node-rest-filesystem"
     }
   };
 }
@@ -614,67 +619,24 @@ function addLog(server, message) {
   server.console = server.console.slice(-120);
 }
 
-function publicNode(node) {
+function serverExpired(server) {
+  return new Date(server.expiresAt || 0).getTime() <= Date.now();
+}
+
+function ensureServerActive(server) {
+  if (!serverExpired(server)) return;
+  server.status = "expired";
+  throw new Error("Server expired. Renew it by opening all 3 ads first.");
+}
+
+function renewProgress(server) {
+  const watched = new Set(server.renewal?.watchedAds || []);
   return {
-    id: node.id,
-    name: node.name,
-    fqdn: node.fqdn,
-    region: node.region,
-    status: node.status,
-    lastSeen: node.lastSeen,
-    stats: node.stats || {},
-    createdAt: node.createdAt,
-    installCommand: node.installCommand || ""
+    watched: [...watched],
+    required: renewalAds.length,
+    complete: watched.size >= renewalAds.length,
+    ads: renewalAds.map((url, index) => ({ index, url, watched: watched.has(index) }))
   };
-}
-
-function panelBaseUrl(request) {
-  const proto = request.headers["x-forwarded-proto"] || (request.socket.encrypted ? "https" : "http");
-  const hostHeader = request.headers["x-forwarded-host"] || request.headers.host || `127.0.0.1:${port}`;
-  return `${proto}://${hostHeader}`;
-}
-
-function buildNodeInstallCommand(request, node, token) {
-  const base = panelBaseUrl(request);
-  return `curl -fsSL ${base}/api/node-agent/install.sh | HERON_API_URL=${base} HERON_NODE_ID=${node.id} HERON_NODE_TOKEN=${token} bash`;
-}
-
-function findNode(id) {
-  const node = state.nodes.find((item) => item.id === id);
-  if (!node) throw new Error("Node not found");
-  return node;
-}
-
-function firstOnlineNode() {
-  return (state.nodes || []).find((node) => node.status === "online") || null;
-}
-
-function queueNodeCommand(nodeId, command) {
-  const queued = {
-    id: uid("cmd"),
-    nodeId,
-    createdAt: new Date().toISOString(),
-    ...command
-  };
-  state.nodeCommands.push(queued);
-  return queued;
-}
-
-function applyNodeResults(results = []) {
-  for (const result of results) {
-    const server = state.servers.find((item) => item.id === result.serverId);
-    if (!server) continue;
-    if (result.ok && result.action === "start") {
-      server.status = "running";
-      addLog(server, `Node command completed: Docker container started on ${result.nodeId}.`);
-    } else if (result.ok && (result.action === "stop" || result.action === "kill")) {
-      server.status = "stopped";
-      addLog(server, `Node command completed: Docker container stopped on ${result.nodeId}.`);
-    } else {
-      server.status = "stopped";
-      addLog(server, `Node command failed: ${result.error || "unknown error"}`);
-    }
-  }
 }
 
 function addLogChunk(server, chunk, prefix = "") {
@@ -748,25 +710,24 @@ async function createServerRecord(input, spendCoins = true) {
   const backupLimit = normalizeBackupLimit(input.backupLimit, 10);
   const port = 25565 + state.servers.length;
   const paperVersion = normalizePaperVersion(input.paperVersion);
-  const assignedNode = input.nodeId ? state.nodes.find((node) => node.id === input.nodeId) : firstOnlineNode();
   const server = {
     id,
     name,
     egg: template.name,
     template: template.id,
     provider: input.provider || "local",
-    nodeId: assignedNode?.id || "",
-    nodeName: assignedNode?.name || "",
     region: input.region || "India - Mumbai",
     runtime: input.runtime || template.runtime,
     status: "stopped",
     ram,
     cpu,
     disk,
-    allocation: `${assignedNode?.fqdn || "127.0.0.1"}:${port}`,
+    allocation: `127.0.0.1:${port}`,
     ports: [String(port), String(port + 1000)],
     owner: "admin",
     createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + renewalDurationMs).toISOString(),
+    renewal: { watchedAds: [] },
     motd: state.settings.motd,
     icon: "assets/brand-logo.png",
     plugins: [],
@@ -1288,42 +1249,19 @@ async function ensureRealMinecraftJar(server) {
 }
 
 async function startServer(server) {
-  if (server.nodeId) {
-    const node = findNode(server.nodeId);
-    if (node.status !== "online") throw new Error(`Node ${node.name} is not online`);
-    const command = templateCommand(server);
-    queueNodeCommand(node.id, {
-      action: "start",
-      serverId: server.id,
-      image: server.startup?.image || "node:22-bookworm-slim",
-      name: server.name,
-      command,
-      env: {
-        SERVER_ID: server.id,
-        SERVER_NAME: server.name,
-        SERVER_PORT: primaryPort(server),
-        SERVER_MEMORY: String(server.ram * 1024)
-      },
-      resources: {
-        ramMb: Number(server.ram || 1) * 1024,
-        cpuPercent: Number(server.cpu || 100),
-        diskGb: Number(server.disk || 10)
-      }
-    });
-    server.status = "starting";
-    addLog(server, `Start queued on node ${node.name}.`);
-    return;
-  }
+  ensureServerActive(server);
   if (processes.has(server.id)) return;
   await ensureServerFiles(server);
-  try {
-    await ensureRealMinecraftJar(server);
-  } catch (error) {
-    server.status = "stopped";
-    addLog(server, `Start blocked: ${error.message}`);
-    addLog(server, "Upload server.jar in File Manager or connect internet, then press Start again.");
-    await persist();
-    throw error;
+  if (/minecraft|paper|forge|fabric|velocity/i.test(server.egg || "")) {
+    try {
+      await ensureRealMinecraftJar(server);
+    } catch (error) {
+      server.status = "stopped";
+      addLog(server, `Start blocked: ${error.message}`);
+      addLog(server, "Upload server.jar in File Manager or connect internet, then press Start again.");
+      await persist();
+      throw error;
+    }
   }
   const command = templateCommand(server);
   const child = spawn(command, {
@@ -1382,17 +1320,6 @@ async function startServer(server) {
 }
 
 async function stopServer(server, force = false) {
-  if (server.nodeId) {
-    const node = findNode(server.nodeId);
-    queueNodeCommand(node.id, {
-      action: force ? "kill" : "stop",
-      serverId: server.id,
-      name: server.name
-    });
-    server.status = "stopping";
-    addLog(server, `Stop queued on node ${node.name}.`);
-    return;
-  }
   const child = processes.get(server.id);
   if (child) {
     expectedStops.add(server.id);
@@ -1725,132 +1652,6 @@ function sendError(response, error, status = 400) {
   sendJson(response, { ok: false, error: error.message || String(error) }, error.status || status);
 }
 
-function nodeAgentInstallScript() {
-  return `#!/usr/bin/env bash
-set -euo pipefail
-
-: "\${HERON_API_URL:?Set HERON_API_URL}"
-: "\${HERON_NODE_ID:?Set HERON_NODE_ID}"
-: "\${HERON_NODE_TOKEN:?Set HERON_NODE_TOKEN}"
-
-if ! command -v docker >/dev/null 2>&1; then
-  curl -fsSL https://get.docker.com | sh
-fi
-
-mkdir -p /opt/heron-node
-cat >/opt/heron-node/agent.mjs <<'NODE'
-import { request } from "node:http";
-import { request as httpsRequest } from "node:https";
-import { execFile } from "node:child_process";
-import os from "node:os";
-
-const apiUrl = process.env.HERON_API_URL;
-const nodeId = process.env.HERON_NODE_ID;
-const token = process.env.HERON_NODE_TOKEN;
-let results = [];
-
-function run(cmd, args, options = {}) {
-  return new Promise((resolve, reject) => {
-    execFile(cmd, args, { timeout: options.timeout || 120000 }, (error, stdout, stderr) => {
-      if (error) reject(new Error(stderr || stdout || error.message));
-      else resolve(String(stdout || "").trim());
-    });
-  });
-}
-
-function post(path, body) {
-  return new Promise((resolve, reject) => {
-    const url = new URL(path, apiUrl);
-    const client = url.protocol === "https:" ? httpsRequest : request;
-    const payload = JSON.stringify(body);
-    const req = client(url, {
-      method: "POST",
-      headers: { "content-type": "application/json", "content-length": Buffer.byteLength(payload) }
-    }, (res) => {
-      let text = "";
-      res.on("data", (chunk) => text += chunk);
-      res.on("end", () => {
-        if (res.statusCode >= 400) reject(new Error(text));
-        else resolve(JSON.parse(text || "{}"));
-      });
-    });
-    req.on("error", reject);
-    req.write(payload);
-    req.end();
-  });
-}
-
-async function startContainer(command) {
-  const name = "heron-" + command.serverId;
-  await run("docker", ["rm", "-f", name], { timeout: 30000 }).catch(() => "");
-  await run("docker", ["pull", command.image], { timeout: 300000 });
-  const envArgs = Object.entries(command.env || {}).flatMap(([key, value]) => ["-e", key + "=" + value]);
-  const memory = String(Math.max(256, Number(command.resources?.ramMb || 1024))) + "m";
-  const cpus = String(Math.max(0.1, Number(command.resources?.cpuPercent || 100) / 100));
-  await run("docker", [
-    "run", "-d", "--name", name, "--restart", "unless-stopped",
-    "--memory", memory, "--cpus", cpus,
-    "-v", "/opt/heron-node/servers/" + command.serverId + ":/data",
-    "-w", "/data",
-    ...envArgs,
-    command.image,
-    "sh", "-lc", command.command || "while true; do sleep 3600; done"
-  ], { timeout: 120000 });
-}
-
-async function stopContainer(command) {
-  const name = "heron-" + command.serverId;
-  await run("docker", ["stop", name], { timeout: 30000 }).catch(() => "");
-}
-
-async function execute(command) {
-  try {
-    if (command.action === "start") await startContainer(command);
-    if (command.action === "stop" || command.action === "kill") await stopContainer(command);
-    results.push({ id: command.id, nodeId, serverId: command.serverId, action: command.action, ok: true });
-  } catch (error) {
-    results.push({ id: command.id, nodeId, serverId: command.serverId, action: command.action, ok: false, error: error.message });
-  }
-}
-
-async function heartbeat() {
-  const payload = {
-    token,
-    stats: {
-      hostname: os.hostname(),
-      platform: os.platform(),
-      uptime: os.uptime(),
-      load: os.loadavg(),
-      memoryTotal: os.totalmem(),
-      memoryFree: os.freemem()
-    },
-    results
-  };
-  results = [];
-  const response = await post("/api/nodes/" + nodeId + "/heartbeat", payload);
-  for (const command of response.commands || []) await execute(command);
-}
-
-setInterval(() => heartbeat().catch((error) => console.error("[heron-node]", error.message)), 5000);
-heartbeat().catch((error) => console.error("[heron-node]", error.message));
-NODE
-
-docker rm -f heron-node-agent >/dev/null 2>&1 || true
-docker run -d \\
-  --name heron-node-agent \\
-  --restart unless-stopped \\
-  -e HERON_API_URL="\${HERON_API_URL}" \\
-  -e HERON_NODE_ID="\${HERON_NODE_ID}" \\
-  -e HERON_NODE_TOKEN="\${HERON_NODE_TOKEN}" \\
-  -v /var/run/docker.sock:/var/run/docker.sock \\
-  -v /opt/heron-node:/opt/heron-node \\
-  -w /opt/heron-node \\
-  node:22-bookworm-slim node agent.mjs
-
-echo "Heron node agent installed. Check: docker logs -f heron-node-agent"
-`;
-}
-
 async function handleApi(request, response, url) {
   const path = url.pathname;
   try {
@@ -1912,83 +1713,7 @@ async function handleApi(request, response, url) {
       return;
     }
 
-    if (request.method === "GET" && path === "/api/node-agent/install.sh") {
-      response.writeHead(200, { "content-type": "text/x-shellscript; charset=utf-8" });
-      response.end(nodeAgentInstallScript());
-      return;
-    }
-
-    const heartbeatMatch = path.match(/^\/api\/nodes\/([^/]+)\/heartbeat$/);
-    if (request.method === "POST" && heartbeatMatch) {
-      const body = await readBody(request);
-      const node = findNode(heartbeatMatch[1]);
-      if (node.tokenHash !== hashSecret(body.token || "")) {
-        const error = new Error("Invalid node token");
-        error.status = 401;
-        throw error;
-      }
-      applyNodeResults(Array.isArray(body.results) ? body.results : []);
-      node.status = "online";
-      node.lastSeen = new Date().toISOString();
-      node.stats = body.stats || {};
-      const commands = state.nodeCommands.filter((command) => command.nodeId === node.id);
-      state.nodeCommands = state.nodeCommands.filter((command) => command.nodeId !== node.id);
-      await persist();
-      sendJson(response, { ok: true, commands });
-      return;
-    }
-
     const currentUser = authenticate(request);
-
-    if (request.method === "GET" && path === "/api/nodes") {
-      requireAdmin(currentUser);
-      sendJson(response, { ok: true, nodes: (state.nodes || []).map(publicNode) });
-      return;
-    }
-
-    if (request.method === "POST" && path === "/api/nodes") {
-      requireAdmin(currentUser);
-      const body = await readBody(request);
-      const token = randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, "");
-      const node = {
-        id: uid("node"),
-        name: String(body.name || "New Node").trim(),
-        fqdn: String(body.fqdn || "0.0.0.0").trim(),
-        region: String(body.region || "India - Mumbai").trim(),
-        status: "pending",
-        tokenHash: hashSecret(token),
-        installCommand: "",
-        stats: {},
-        createdAt: new Date().toISOString(),
-        lastSeen: ""
-      };
-      node.installCommand = buildNodeInstallCommand(request, node, token);
-      state.nodes.unshift(node);
-      addActivity(`Node created: ${node.name}. Run install command to bring it online.`);
-      await persist();
-      sendJson(response, { ok: true, node: publicNode(node), token, installCommand: node.installCommand, state: publicState(currentUser) });
-      return;
-    }
-
-    const nodeDeleteMatch = path.match(/^\/api\/nodes\/([^/]+)\/delete$/);
-    if (request.method === "POST" && nodeDeleteMatch) {
-      requireAdmin(currentUser);
-      const node = findNode(nodeDeleteMatch[1]);
-      state.nodes = state.nodes.filter((item) => item.id !== node.id);
-      state.nodeCommands = state.nodeCommands.filter((command) => command.nodeId !== node.id);
-      for (const server of state.servers) {
-        if (server.nodeId === node.id) {
-          server.nodeId = "";
-          server.nodeName = "";
-          server.status = "stopped";
-          addLog(server, `Node ${node.name} was removed; server detached.`);
-        }
-      }
-      addActivity(`Node removed: ${node.name}.`);
-      await persist();
-      sendJson(response, { ok: true, state: publicState(currentUser) });
-      return;
-    }
 
     if (request.method === "POST" && path === "/api/account/settings") {
       const body = await readBody(request);
@@ -2130,6 +1855,36 @@ async function handleApi(request, response, url) {
       addActivity(`${server.name}: ${action}.`);
       await persist();
       sendJson(response, { ok: true, state: publicState() });
+      return;
+    }
+
+    const renewAdMatch = path.match(/^\/api\/servers\/([^/]+)\/renew\/ad$/);
+    if (request.method === "POST" && renewAdMatch) {
+      const server = findServer(renewAdMatch[1]);
+      const body = await readBody(request);
+      const adIndex = Number(body.adIndex);
+      if (!Number.isInteger(adIndex) || adIndex < 0 || adIndex >= renewalAds.length) throw new Error("Invalid ad index");
+      server.renewal = server.renewal || { watchedAds: [] };
+      server.renewal.watchedAds = Array.from(new Set([...(server.renewal.watchedAds || []), adIndex]));
+      addLog(server, `Renewal ad ${adIndex + 1}/${renewalAds.length} opened.`);
+      await persist();
+      sendJson(response, { ok: true, url: renewalAds[adIndex], progress: renewProgress(server), state: publicState(currentUser) });
+      return;
+    }
+
+    const renewClaimMatch = path.match(/^\/api\/servers\/([^/]+)\/renew\/claim$/);
+    if (request.method === "POST" && renewClaimMatch) {
+      const server = findServer(renewClaimMatch[1]);
+      const progress = renewProgress(server);
+      if (!progress.complete) throw new Error("Open all 3 ads before renewal");
+      const currentExpiry = Math.max(Date.now(), new Date(server.expiresAt || 0).getTime());
+      server.expiresAt = new Date(currentExpiry + renewalBonusMs).toISOString();
+      server.renewal = { watchedAds: [] };
+      if (server.status === "expired") server.status = "stopped";
+      addActivity(`${server.name}: renewed for 45 minutes.`);
+      addLog(server, "Server renewed for 45 minutes after 3 ads.");
+      await persist();
+      sendJson(response, { ok: true, expiresAt: server.expiresAt, state: publicState(currentUser) });
       return;
     }
 
