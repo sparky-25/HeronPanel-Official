@@ -23,29 +23,6 @@
     </video>
     <div class="background-overlay dashboard-overlay" aria-hidden="true"></div>
 
-    <main class="auth-screen" id="authScreen">
-      <section class="auth-card">
-        <img src="assets/brand-logo.png" alt="HeronPanel" class="auth-logo">
-        <div>
-          <p class="eyebrow">HeronPanel secure access</p>
-          <h1>Login</h1>
-        </div>
-        <form id="loginForm" class="stack-form">
-          <label>Username or email<input name="identifier" autocomplete="username" placeholder="Username or email"></label>
-          <label>Password<input name="password" type="password" autocomplete="current-password"></label>
-          <button class="primary-button wide" type="submit"><svg class="button-icon"><use href="#i-user"></use></svg>Login</button>
-        </form>
-        <button class="ghost-button wide" id="showRegisterBtn" type="button"><svg class="button-icon"><use href="#i-plus"></use></svg>Create account</button>
-        <button class="ghost-button wide" data-site-settings-trigger type="button"><svg class="button-icon"><use href="#i-settings"></use></svg><span>Settings</span></button>
-        <form id="registerForm" class="stack-form hidden">
-          <label>Username<input name="username" autocomplete="username"></label>
-          <label>Email<input name="email" type="email" autocomplete="email"></label>
-          <label>Password<input name="password" type="password" autocomplete="new-password"></label>
-          <button class="primary-button wide" type="submit"><svg class="button-icon"><use href="#i-plus"></use></svg>Register</button>
-        </form>
-      </section>
-    </main>
-
     <main class="dashboard-shell marketplace-shell hidden" id="marketplaceShell">
       <header class="dashboard-topbar">
         <a class="brand" href="index.html">
@@ -62,6 +39,12 @@
         </div>
       </header>
       <section class="dashboard-content marketplace-page-content" id="marketplaceContent"></section>
+      <footer class="site-footer">
+        <strong>HeronPanel all rights reserve.</strong>
+        <span>Made By SparkyTeam</span>
+        <a href="mailto:zerakubusiness@gmail.com">zerakubusiness@gmail.com</a>
+        <a class="discord-button" href="https://discord.gg/T4YRRjjFPg" target="_blank" rel="noopener noreferrer">Join Discord</a>
+      </footer>
     </main>
 
     <div class="modal hidden" id="createModal">

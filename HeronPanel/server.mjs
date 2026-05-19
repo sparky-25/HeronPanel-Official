@@ -295,6 +295,15 @@ const serverPresets = {
     pvp: false,
     slots: 100,
     plugins: ["LuckPerms", "WorldGuard"]
+  },
+  "survival-plus": {
+    name: "Survival Plus",
+    motd: "Survival Plus with economy, claims, and ranks",
+    gamemode: "survival",
+    difficulty: "normal",
+    pvp: true,
+    slots: 100,
+    plugins: ["LuckPerms", "EssentialsX", "WorldGuard"]
   }
 };
 
@@ -332,12 +341,29 @@ const marketplaceItems = [
   { id: "plugin-ops", name: "Ops Plugin Bundle", type: "plugin-bundle", price: 300, description: "Permissions, essentials, and moderation recommendations." }
 ];
 
+const marketplaceEffects = {
+  "pack-survival": {
+    unlockedPreset: "survival-plus",
+    activity: "Survival Plus preset unlocked."
+  },
+  "template-discord": {
+    unlockedTemplate: "discord-bot",
+    activity: "Discord Bot startup template unlocked."
+  },
+  "plugin-ops": {
+    plugins: ["LuckPerms", "EssentialsX", "WorldGuard"],
+    activity: "Ops plugin bundle unlocked in catalog."
+  }
+};
+
 function defaultState() {
   return {
     coins: 125,
     clickProgress: 0,
     selectedServerId: "",
     activeDetailTab: "console",
+    unlockedPresets: [],
+    unlockedTemplates: [],
     settings: {
       panelName: "HeronPanel",
       serverCost: 50,
@@ -345,6 +371,7 @@ function defaultState() {
       clickTarget: 100,
       clickReward: 50,
       motd: "Welcome to HeronPanel. Real backend, clean control.",
+      activeTheme: "premium-dark",
       providers: {
         codesandbox: true,
         github: true,
@@ -355,6 +382,13 @@ function defaultState() {
     modCatalog,
     marketplaceItems,
     marketplacePurchases: [],
+    apiKeys: [],
+    security: {
+      ipBlacklist: [],
+      registrationApproval: true,
+      rateLimit: true,
+      auditLog: []
+    },
     servers: [],
     players: [],
     users: [adminUser()],
@@ -392,6 +426,7 @@ function sanitizeUser(user) {
     username: user.username,
     email: user.email,
     role: user.role || "user",
+    status: user.status || "active",
     createdAt: user.createdAt
   };
 }
@@ -440,9 +475,24 @@ function verifyPassword(user, password) {
   return user.passwordHash === passwordHash || user.backupPasswordHash === passwordHash;
 }
 
+function ensureUserCanLogin(user) {
+  if ((user.status || "active") === "active") return;
+  const error = new Error(user.status === "pending" ? "Account is pending admin approval" : "Account is suspended");
+  error.status = 403;
+  throw error;
+}
+
 function authenticate(request) {
   const header = request.headers.authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+  if (token.startsWith("hp_")) {
+    const key = (state.apiKeys || []).find((item) => item.hash === hashSecret(token));
+    if (key) {
+      key.lastUsed = new Date().toISOString();
+      const user = state.users.find((item) => item.id === key.userId) || state.users.find((item) => item.id === adminSeed.id);
+      if (user) return user;
+    }
+  }
   const userId = sessions.get(token);
   const user = state.users.find((item) => item.id === userId);
   if (!user) {
@@ -570,6 +620,14 @@ function mergeState(base, saved) {
   merged.modCatalog = saved.modCatalog || base.modCatalog;
   merged.marketplaceItems = base.marketplaceItems;
   merged.marketplacePurchases = saved.marketplacePurchases || base.marketplacePurchases;
+  merged.unlockedPresets = saved.unlockedPresets || base.unlockedPresets;
+  merged.unlockedTemplates = saved.unlockedTemplates || base.unlockedTemplates;
+  merged.apiKeys = saved.apiKeys || base.apiKeys;
+  merged.security = {
+    ...base.security,
+    ...(saved.security || {}),
+    auditLog: Array.isArray(saved.security?.auditLog) ? saved.security.auditLog : []
+  };
   merged.servers = saved.servers || base.servers;
   merged.players = saved.players || base.players;
   merged.users = saved.users || base.users;
@@ -664,8 +722,14 @@ function publicState(viewer = null) {
     ...state,
     servers: visibleServers,
     players: isAdmin(viewer) ? state.players : state.players.filter((player) => visibleServers.some((server) => server.id === player.serverId)),
+    apiKeys: isAdmin(viewer)
+      ? state.apiKeys.map((key) => ({ id: key.id, name: key.name, prefix: key.prefix, createdAt: key.createdAt, lastUsed: key.lastUsed || "" }))
+      : [],
+    security: isAdmin(viewer) ? state.security : { ipBlacklist: [], registrationApproval: true, rateLimit: true, auditLog: [] },
     gameTemplates: gameTemplates.map(({ id, name, category, runtime, description }) => ({ id, name, category, runtime, description })),
-    serverPresets: Object.entries(serverPresets).map(([id, preset]) => ({ id, name: preset.name })),
+    serverPresets: Object.entries(serverPresets)
+      .filter(([id]) => id !== "survival-plus" || state.unlockedPresets?.includes(id) || state.marketplacePurchases?.includes("pack-survival"))
+      .map(([id, preset]) => ({ id, name: preset.name })),
     performanceModes: Object.keys(performanceModes),
     marketplaceItems,
     users: isAdmin(viewer) ? state.users.map(sanitizeUser) : viewer ? [sanitizeUser(viewer)] : [],
@@ -681,6 +745,11 @@ function publicState(viewer = null) {
 function addActivity(message) {
   state.activity.unshift(message);
   state.activity = state.activity.slice(0, 30);
+  state.security = state.security || { auditLog: [] };
+  state.security.auditLog = [
+    { id: uid("audit"), at: new Date().toISOString(), message },
+    ...(state.security.auditLog || [])
+  ].slice(0, 80);
 }
 
 function addLog(server, message) {
@@ -786,6 +855,23 @@ function applyServerPreset(server, presetId) {
     if (!server.plugins.includes(plugin)) server.plugins.push(plugin);
   }
   server.console.push(nowLine(`Server preset applied: ${preset.name}.`));
+}
+
+function applyMarketplaceEffect(item) {
+  const effect = marketplaceEffects[item.id];
+  if (item.id === "theme-nebula") state.settings.activeTheme = "nebula";
+  if (!effect) return;
+  state.unlockedPresets = state.unlockedPresets || [];
+  state.unlockedTemplates = state.unlockedTemplates || [];
+  if (effect.unlockedPreset && !state.unlockedPresets.includes(effect.unlockedPreset)) state.unlockedPresets.push(effect.unlockedPreset);
+  if (effect.unlockedTemplate && !state.unlockedTemplates.includes(effect.unlockedTemplate)) state.unlockedTemplates.push(effect.unlockedTemplate);
+  if (effect.plugins) {
+    for (const pluginName of effect.plugins) {
+      const item = state.pluginCatalog.find((entry) => entry.name === pluginName);
+      if (item) item.description = `${item.description} Included in Ops bundle.`;
+    }
+  }
+  addActivity(effect.activity);
 }
 
 async function createServerRecord(input, spendCoins = true) {
@@ -2093,6 +2179,7 @@ async function handleApi(request, response, url) {
         error.status = 401;
         throw error;
       }
+      ensureUserCanLogin(user);
       const token = randomUUID();
       sessions.set(token, user.id);
       sendJson(response, { ok: true, token, user: sanitizeUser(user) });
@@ -2115,6 +2202,7 @@ async function handleApi(request, response, url) {
         username,
         email,
         role: "user",
+        status: state.security?.registrationApproval !== false ? "pending" : "active",
         passwordHash: hashSecret(password),
         backupPasswordHash: "",
         loginAliases: [],
@@ -2122,6 +2210,11 @@ async function handleApi(request, response, url) {
       };
       state.users.push(user);
       await persist();
+      if (user.status === "pending") {
+        addActivity(`Registration pending approval: ${user.username}.`);
+        sendJson(response, { ok: true, pending: true, message: "Registration submitted. Admin approval required." });
+        return;
+      }
       const token = randomUUID();
       sessions.set(token, user.id);
       sendJson(response, { ok: true, token, user: sanitizeUser(user) });
@@ -2173,6 +2266,70 @@ async function handleApi(request, response, url) {
 
     if (request.method === "GET" && path === "/api/state") {
       sendJson(response, { ok: true, state: publicState(currentUser), user: sanitizeUser(currentUser) });
+      return;
+    }
+
+    if (request.method === "POST" && path === "/api/api-keys") {
+      requireAdmin(currentUser);
+      const body = await readBody(request);
+      const rawKey = `hp_${randomUUID().replaceAll("-", "")}${randomUUID().replaceAll("-", "")}`;
+      const key = {
+        id: uid("key"),
+        name: String(body.name || "Panel API Key").trim(),
+        prefix: rawKey.slice(0, 10),
+        hash: hashSecret(rawKey),
+        userId: currentUser.id,
+        createdAt: new Date().toISOString(),
+        lastUsed: ""
+      };
+      state.apiKeys.unshift(key);
+      addActivity(`API key created: ${key.name}.`);
+      await persist();
+      sendJson(response, { ok: true, apiKey: rawKey, state: publicState(currentUser) });
+      return;
+    }
+
+    const apiKeyDeleteMatch = path.match(/^\/api\/api-keys\/([^/]+)\/delete$/);
+    if (request.method === "POST" && apiKeyDeleteMatch) {
+      requireAdmin(currentUser);
+      state.apiKeys = (state.apiKeys || []).filter((key) => key.id !== apiKeyDeleteMatch[1]);
+      addActivity("API key deleted.");
+      await persist();
+      sendJson(response, { ok: true, state: publicState(currentUser) });
+      return;
+    }
+
+    if (request.method === "POST" && path === "/api/security") {
+      requireAdmin(currentUser);
+      const body = await readBody(request);
+      state.security = {
+        ...(state.security || {}),
+        ipBlacklist: String(body.ipBlacklist || "").split(/\r?\n|,/).map((ip) => ip.trim()).filter(Boolean),
+        registrationApproval: body.registrationApproval !== false,
+        rateLimit: body.rateLimit !== false,
+        auditLog: state.security?.auditLog || []
+      };
+      addActivity("Security settings updated.");
+      await persist();
+      sendJson(response, { ok: true, state: publicState(currentUser) });
+      return;
+    }
+
+    const userActionMatch = path.match(/^\/api\/users\/([^/]+)\/action$/);
+    if (request.method === "POST" && userActionMatch) {
+      requireAdmin(currentUser);
+      const body = await readBody(request);
+      const user = state.users.find((item) => item.id === userActionMatch[1]);
+      if (!user) throw new Error("User not found");
+      if (user.id === adminSeed.id) throw new Error("Built-in owner cannot be modified");
+      const action = String(body.action || "").trim();
+      if (action === "approve") user.status = "active";
+      else if (action === "suspend" || action === "ban") user.status = "suspended";
+      else if (action === "delete") state.users = state.users.filter((item) => item.id !== user.id);
+      else throw new Error("Invalid user action");
+      addActivity(`User ${user.username}: ${action}.`);
+      await persist();
+      sendJson(response, { ok: true, state: publicState(currentUser) });
       return;
     }
 
@@ -2250,6 +2407,7 @@ async function handleApi(request, response, url) {
       if (Number(state.coins || 0) < item.price) throw new Error("Not enough coins");
       state.coins -= item.price;
       state.marketplacePurchases.push(item.id);
+      applyMarketplaceEffect(item);
       addActivity(`Marketplace purchase: ${item.name} for ${item.price} coins.`);
       await persist();
       sendJson(response, { ok: true, item, state: publicState(currentUser) });

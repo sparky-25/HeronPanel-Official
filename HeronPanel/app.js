@@ -336,6 +336,8 @@ function getSiteTitle() {
 
 function applyTheme() {
   const siteName = getSiteName();
+  const hasNebula = state?.settings?.activeTheme === "nebula" || (state?.marketplacePurchases || []).includes("theme-nebula");
+  document.body.classList.toggle("theme-nebula", Boolean(hasNebula));
   $$("[data-bind='panelName']").forEach((node) => {
     node.textContent = siteName;
   });
@@ -532,15 +534,36 @@ function bindSiteSettingsTriggers() {
   });
 }
 
+function safeNextPath() {
+  const next = new URLSearchParams(location.search).get("next");
+  if (!next || next.startsWith("http://") || next.startsWith("https://") || next.startsWith("//")) {
+    return "index.html";
+  }
+  return next;
+}
+
+function loginUrl() {
+  const current = `${location.pathname.split("/").pop() || "index.html"}${location.search || ""}${location.hash || ""}`;
+  return `login.html?next=${encodeURIComponent(current)}`;
+}
+
 function showAuth() {
-  $("#authScreen").classList.remove("hidden");
+  if (pageMode !== "login" && pageMode !== "register") {
+    location.href = loginUrl();
+    return;
+  }
+  $("#authScreen")?.classList.remove("hidden");
   $("#panelShell")?.classList.add("hidden");
   $("#dashboardShell")?.classList.add("hidden");
   $("#marketplaceShell")?.classList.add("hidden");
 }
 
 function showPanel() {
-  $("#authScreen").classList.add("hidden");
+  if (pageMode === "login" || pageMode === "register") {
+    location.href = safeNextPath();
+    return;
+  }
+  $("#authScreen")?.classList.add("hidden");
   if (pageMode === "dashboard") {
     $("#dashboardShell")?.classList.remove("hidden");
   } else if (pageMode === "marketplace") {
@@ -649,7 +672,7 @@ function renderMarketplace() {
                 <div class="market-icon">${icon("server", "catalog-svg")}</div>
                 <div>
                   <strong>${escapeHtml(item.name)}</strong>
-                  <p class="muted">${escapeHtml(item.description)}</p>
+                  <p class="muted">${escapeHtml(item.description)}${item.id === "theme-nebula" && purchased ? " Active theme" : ""}</p>
                 </div>
               </div>
               <div class="marketplace-buy-row">
@@ -880,6 +903,8 @@ function renderContent() {
     players: renderPlayers,
     optimizer: renderOptimizer,
     health: renderHealth,
+    apikeys: renderApiKeys,
+    security: renderSecurity,
     map: renderWorldMap,
     terminal: renderTerminal,
     analytics: renderAnalytics,
@@ -1424,6 +1449,43 @@ function renderWorldMap(server) {
   `;
 }
 
+function renderApiKeys() {
+  if (!canUseAdmin()) return `<article class="panel-card"><h2>Admin access required</h2></article>`;
+  return `
+    <article class="panel-card">
+      <div class="section-header"><div><p class="eyebrow">API System</p><h2>API Keys</h2></div></div>
+      <form class="command-row" data-api-key-form>
+        <input name="name" placeholder="Deploy bot key">
+        <button class="primary-button" type="submit">${icon("shield")}Create key</button>
+      </form>
+      <div class="settings-list">${(state.apiKeys || []).map((key) => `<div class="setting-item"><span>${escapeHtml(key.name)} <small class="muted">${escapeHtml(key.prefix)}... ${key.lastUsed ? `last ${new Date(key.lastUsed).toLocaleString("en-IN")}` : "never used"}</small></span><button class="mini-button" data-action="delete-api-key" data-key-id="${escapeHtml(key.id)}">${icon("ban")}Delete</button></div>`).join("") || `<div class="setting-item"><span>No API keys yet</span><span class="muted">empty</span></div>`}</div>
+    </article>
+  `;
+}
+
+function renderSecurity() {
+  if (!canUseAdmin()) return `<article class="panel-card"><h2>Admin access required</h2></article>`;
+  const security = state.security || {};
+  return `
+    <div class="smart-grid">
+      <form class="panel-card stack-form" data-security-form>
+        <div class="section-header compact"><h2>Security Manager</h2><button class="primary-button" type="submit">${icon("shield")}Save</button></div>
+        <label>IP blacklist<textarea name="ipBlacklist" rows="5">${escapeHtml((security.ipBlacklist || []).join("\n"))}</textarea></label>
+        <label class="checkbox-row"><input name="registrationApproval" type="checkbox" ${checked(security.registrationApproval !== false)}> Registration approval required</label>
+        <label class="checkbox-row"><input name="rateLimit" type="checkbox" ${checked(security.rateLimit !== false)}> Rate limit enabled</label>
+      </form>
+      <article class="panel-card">
+        <div class="section-header compact"><h2>Audit logs</h2></div>
+        <div class="settings-list">${(security.auditLog || []).slice(0, 20).map((entry) => `<div class="setting-item"><span>${escapeHtml(entry.message)}</span><small class="muted">${new Date(entry.at).toLocaleString("en-IN")}</small></div>`).join("") || `<div class="setting-item"><span>No audit logs yet</span><span class="muted">empty</span></div>`}</div>
+      </article>
+      <article class="panel-card">
+        <div class="section-header compact"><h2>User approvals</h2></div>
+        <div class="settings-list">${(state.users || []).filter((user) => user.id !== "usr-admin").map((user) => `<div class="setting-item"><span>${escapeHtml(user.username)} <small class="muted">${escapeHtml(user.email)} · ${escapeHtml(user.status || "active")}</small></span><div class="row-actions"><button class="mini-button" data-action="user-action" data-user-id="${escapeHtml(user.id)}" data-user-action="approve">${icon("play")}Approve</button><button class="mini-button" data-action="user-action" data-user-id="${escapeHtml(user.id)}" data-user-action="suspend">${icon("stop")}Suspend</button><button class="danger-button" data-action="user-action" data-user-id="${escapeHtml(user.id)}" data-user-action="delete">${icon("ban")}Delete</button></div></div>`).join("") || `<div class="setting-item"><span>No users waiting</span><span class="muted">empty</span></div>`}</div>
+      </article>
+    </div>
+  `;
+}
+
 function renderTerminal(server) {
   return `
     <article class="panel-card">
@@ -1518,7 +1580,7 @@ function bindStaticForms() {
   bindSiteSettingsControls();
   bindSiteSettingsTriggers();
 
-  $("#loginForm").addEventListener("submit", async (event) => {
+  $("#loginForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     try {
@@ -1527,8 +1589,8 @@ function bindStaticForms() {
         body: { identifier: form.get("identifier"), password: form.get("password") }
       });
       localStorage.setItem(tokenKey, payload.token);
-      if (pageMode === "panel") {
-        location.href = "index.html";
+      if (pageMode === "login" || pageMode === "register") {
+        location.href = safeNextPath();
         return;
       }
       await refresh();
@@ -1537,9 +1599,17 @@ function bindStaticForms() {
     }
   });
 
-  $("#showRegisterBtn").addEventListener("click", () => $("#registerForm").classList.toggle("hidden"));
+  $("#showRegisterBtn")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    location.href = `register.html?next=${encodeURIComponent(safeNextPath())}`;
+  });
 
-  $("#registerForm").addEventListener("submit", async (event) => {
+  $("#showLoginBtn")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    location.href = `login.html?next=${encodeURIComponent(safeNextPath())}`;
+  });
+
+  $("#registerForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     try {
@@ -1547,9 +1617,16 @@ function bindStaticForms() {
         method: "POST",
         body: { username: form.get("username"), email: form.get("email"), password: form.get("password") }
       });
+      if (payload.pending) {
+        toast("Registration submitted", payload.message || "Admin approval required.");
+        setTimeout(() => {
+          location.href = `login.html?next=${encodeURIComponent(safeNextPath())}`;
+        }, 1200);
+        return;
+      }
       localStorage.setItem(tokenKey, payload.token);
-      if (pageMode === "panel") {
-        location.href = "index.html";
+      if (pageMode === "login" || pageMode === "register") {
+        location.href = safeNextPath();
         return;
       }
       await refresh();
@@ -1558,10 +1635,10 @@ function bindStaticForms() {
     }
   });
 
-  $("#logoutBtn").addEventListener("click", async () => {
+  $("#logoutBtn")?.addEventListener("click", async () => {
     try { await api("/api/auth/logout", { method: "POST", body: {} }); } catch {}
     localStorage.removeItem(tokenKey);
-    showAuth();
+    location.href = "login.html";
   });
 
   $("#serverListBtn")?.addEventListener("click", () => renderServerPicker(true));
@@ -1580,7 +1657,7 @@ function bindStaticForms() {
   });
   $$("[data-close-modal]").forEach((button) => button.addEventListener("click", () => button.closest(".modal").classList.add("hidden")));
 
-  $("#createServerForm").addEventListener("submit", async (event) => {
+  $("#createServerForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const body = {
@@ -1611,7 +1688,7 @@ function bindStaticForms() {
     }
   });
 
-  $("#adminSettingsForm").addEventListener("submit", async (event) => {
+  $("#adminSettingsForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!canUseAdmin()) {
       toast("Admin locked", "Only admin accounts can save these settings.");
@@ -1641,7 +1718,7 @@ function bindStaticForms() {
     }
   });
 
-  $("#accountSettingsForm").addEventListener("submit", async (event) => {
+  $("#accountSettingsForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
     if (form.newPassword.value && form.newPassword.value !== form.confirmPassword.value) {
@@ -1724,6 +1801,19 @@ function bindDelegatedActions() {
         await api("/api/marketplace/buy", { method: "POST", body: { itemId: id } });
         await refresh();
         toast("Marketplace", "Item purchased.");
+        return;
+      }
+      if (action === "delete-api-key") {
+        await api(`/api/api-keys/${button.dataset.keyId}/delete`, { method: "POST", body: {} });
+        await refresh();
+        toast("API key deleted", "Key revoked.");
+        return;
+      }
+      if (action === "user-action") {
+        if (button.dataset.userAction === "delete" && !confirm("Delete this user?")) return;
+        await api(`/api/users/${button.dataset.userId}/action`, { method: "POST", body: { action: button.dataset.userAction } });
+        await refresh();
+        toast("User updated", button.dataset.userAction);
         return;
       }
       if (action === "open-server") {
@@ -2161,6 +2251,25 @@ function bindDelegatedActions() {
         const payload = await api(`/api/servers/${form.dataset.id}/shell`, { method: "POST", body: { command: data.get("command") } });
         shellOutput = `$ ${data.get("command")}\n${payload.result.output || `(exit ${payload.result.code})`}`;
         renderContent();
+      } else if (form.matches("[data-api-key-form]")) {
+        event.preventDefault();
+        const data = new FormData(form);
+        const payload = await api("/api/api-keys", { method: "POST", body: { name: data.get("name") } });
+        await refresh();
+        toast("API key created", payload.apiKey);
+      } else if (form.matches("[data-security-form]")) {
+        event.preventDefault();
+        const data = new FormData(form);
+        await api("/api/security", {
+          method: "POST",
+          body: {
+            ipBlacklist: data.get("ipBlacklist"),
+            registrationApproval: data.get("registrationApproval") === "on",
+            rateLimit: data.get("rateLimit") === "on"
+          }
+        });
+        await refresh();
+        toast("Security saved", "Security settings updated.");
       } else if (form.matches("[data-subuser-form]")) {
         event.preventDefault();
         const data = new FormData(form);
@@ -2214,7 +2323,9 @@ async function init() {
   } catch {
     localStorage.removeItem(tokenKey);
     showAuth();
+    return;
   }
+  if (pageMode === "login" || pageMode === "register") return;
   setInterval(() => {
     const shell = pageMode === "dashboard" ? $("#dashboardShell") : pageMode === "marketplace" ? $("#marketplaceShell") : $("#panelShell");
     if (shell && !shell.classList.contains("hidden")) refresh().catch(() => {});
