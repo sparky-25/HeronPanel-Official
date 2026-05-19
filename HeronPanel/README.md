@@ -2,7 +2,7 @@
 
 HeronPanel - The free game server control panel for users, networks, and game service providers.
 
-HeronPanel is a game server management panel with a Node.js backend, real server folders, one-click game templates, Paper version selection, live console, file manager, plugin/mod installer, player management, coins system, marketplace, optimizer tools, smart backups, and admin controls.
+HeronPanel is a game server management panel with a Node.js backend, real server folders, one-click game templates, Minecraft version switching, live console, file manager, plugin/mod installer, player management, coins system, marketplace, optimizer tools, smart backups, and admin controls.
 
 ## Features
 
@@ -10,12 +10,12 @@ HeronPanel is a game server management panel with a Node.js backend, real server
 - Login and register system
 - Admin and normal user accounts
 - Coins system
-- One-click game templates for Minecraft, Rust, CS2, Palworld, Node.js bots, Python bots, and Discord bots
+- One-click game templates for Paper, Purpur, Fabric, Forge, Velocity, BungeeCord, Node.js bots, Python bots, and Discord bots
 - Create servers from the dashboard
 - Marketplace server limit upgrade
 - Marketplace items for themes, plugin bundles, startup templates, and server packs
 - Real Paper `server.jar` download and startup
-- Paper version selector from `1.19` to latest
+- Minecraft version switcher from `1.8.8` to latest for supported jar providers
 - Live console output from the running server process
 - Console search, error highlighting, command suggestions, and command macros
 - Start, stop, and restart controls
@@ -37,7 +37,7 @@ HeronPanel is a game server management panel with a Node.js backend, real server
 - Network port management
 - Team roles with granular permissions
 - Smart restore point backups
-- DDoS-style traffic analytics dashboard
+- traffic analytics dashboard based on panel logs and exposed ports
 - Node auto-healing with crash restart queue
 - Databases, schedules, users, backups, and startup settings
 - Premium black and white panel theme
@@ -50,7 +50,6 @@ Install these before running HeronPanel:
 - Java 17 or Java 21
 - Git
 - Internet connection for the first Paper server download
-- SteamCMD for real Rust, CS2, or Palworld binaries
 - Python 3 for Python bot templates
 
 Latest Paper versions usually require Java 21. Older Paper versions such as 1.19 usually work with Java 17.
@@ -317,7 +316,7 @@ Cloudflare Tunnel can proxy TCP, but normal Minecraft players usually need a pub
 1. Open HeronPanel.
 2. Login or register.
 3. Click `Create server`.
-4. Select Paper version.
+4. Select Minecraft version.
 5. Choose RAM, CPU, disk, provider, and region.
 6. Click create.
 7. Open the server.
@@ -329,7 +328,7 @@ HeronPanel creates the server folder here:
 data/servers/<server-id>/
 ```
 
-On first start, HeronPanel downloads the selected Paper version as:
+On first start, HeronPanel downloads the selected Minecraft server jar as:
 
 ```txt
 data/servers/<server-id>/server.jar
@@ -353,7 +352,7 @@ java -Xms128M -Xmx4096M -jar server.jar nogui
 
 ## Paper Versions
 
-HeronPanel supports Paper versions from:
+HeronPanel supports Minecraft version presets from:
 
 ```txt
 1.19 to latest
@@ -364,7 +363,7 @@ The version selector is available in:
 - Create server modal
 - Startup tab
 
-If you change the Paper version, HeronPanel downloads the selected version on the next server start.
+If you change the Minecraft version, HeronPanel downloads the selected supported jar on the next server start.
 
 ## Project Structure
 

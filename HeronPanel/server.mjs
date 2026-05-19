@@ -24,9 +24,12 @@ const serverRoot = join(dataDir, "servers");
 const backupRoot = join(dataDir, "backups");
 const statePath = join(dataDir, "panel-state.json");
 const port = Number(process.env.PORT || 4173);
-const host = process.env.HOST || "127.0.0.1";
+const host = process.env.HOST || "0.0.0.0";
 const runtimeCommand = "java -Xms128M -Xmx{{SERVER_MEMORY}}M -jar server.jar nogui";
 const paperApiBase = "https://fill.papermc.io/v3/projects/paper";
+const paperLegacyApiBase = "https://api.papermc.io/v2/projects/paper";
+const velocityApiBase = "https://api.papermc.io/v2/projects/velocity";
+const purpurApiBase = "https://api.purpurmc.org/v2/purpur";
 const paperUserAgent = "HeronPanel/1.0 (support@heronpanel.local)";
 const renewalDurationMs = 24 * 60 * 60 * 1000;
 const renewalBonusMs = 45 * 60 * 1000;
@@ -56,7 +59,18 @@ const paperVersionFallback = [
   "1.19.3",
   "1.19.2",
   "1.19.1",
-  "1.19"
+  "1.19",
+  "1.18.2",
+  "1.17.1",
+  "1.16.5",
+  "1.15.2",
+  "1.14.4",
+  "1.13.2",
+  "1.12.2",
+  "1.11.2",
+  "1.10.2",
+  "1.9.4",
+  "1.8.8"
 ];
 const processes = new Map();
 const expectedStops = new Set();
@@ -149,12 +163,22 @@ const gameTemplates = [
     description: "Downloads a real Paper server.jar on first start."
   },
   {
+    id: "minecraft-purpur",
+    name: "Purpur",
+    category: "Minecraft",
+    runtime: "Java 21",
+    image: "purpur-java-runtime",
+    command: runtimeCommand,
+    folders: ["plugins", "world", "logs", "config"],
+    description: "Downloads a real Purpur server.jar on first start."
+  },
+  {
     id: "minecraft-forge",
     name: "Forge Modded",
     category: "Minecraft",
     runtime: "Java 21",
     image: "forge-java-runtime",
-    command: "java -Xms128M -Xmx{{SERVER_MEMORY}}M -jar forge-server.jar nogui",
+    command: "sh run.sh nogui",
     folders: ["mods", "world", "logs", "config"],
     description: "Modded Minecraft layout with mods folder and Java startup."
   },
@@ -164,19 +188,9 @@ const gameTemplates = [
     category: "Minecraft",
     runtime: "Java 21",
     image: "fabric-java-runtime",
-    command: "java -Xms128M -Xmx{{SERVER_MEMORY}}M -jar fabric-server.jar nogui",
+    command: "java -Xms128M -Xmx{{SERVER_MEMORY}}M -jar server.jar nogui",
     folders: ["mods", "world", "logs", "config"],
     description: "Fabric-style modded Minecraft layout."
-  },
-  {
-    id: "minecraft-bedrock",
-    name: "Minecraft Bedrock",
-    category: "Minecraft",
-    runtime: "Bedrock runtime",
-    image: "bedrock-runtime",
-    command: "node runtimes/game-template-runner.mjs \"{{SERVER_NAME}}\" \"Minecraft Bedrock\" \"{{SERVER_PORT}}\"",
-    folders: ["worlds", "logs", "config"],
-    description: "Bedrock template with startup files ready for official binary replacement."
   },
   {
     id: "velocity",
@@ -184,39 +198,19 @@ const gameTemplates = [
     category: "Minecraft",
     runtime: "Java 21",
     image: "velocity-java-runtime",
-    command: "java -Xms128M -Xmx{{SERVER_MEMORY}}M -jar velocity.jar",
+    command: "java -Xms128M -Xmx{{SERVER_MEMORY}}M -jar server.jar",
     folders: ["plugins", "logs", "config"],
-    description: "Velocity proxy layout and Java startup."
+    description: "Downloads a real Velocity proxy jar on first start."
   },
   {
-    id: "rust",
-    name: "Rust",
-    category: "Steam",
-    runtime: "SteamCMD",
-    image: "steamcmd-runtime",
-    command: "node runtimes/game-template-runner.mjs \"{{SERVER_NAME}}\" \"Rust\" \"{{SERVER_PORT}}\"",
-    folders: ["server", "oxide", "logs"],
-    description: "Steam game template with install scripts and managed startup placeholder."
-  },
-  {
-    id: "cs2",
-    name: "CS2",
-    category: "Steam",
-    runtime: "SteamCMD",
-    image: "steamcmd-runtime",
-    command: "node runtimes/game-template-runner.mjs \"{{SERVER_NAME}}\" \"CS2\" \"{{SERVER_PORT}}\"",
-    folders: ["game", "cfg", "logs"],
-    description: "Counter-Strike 2 template with SteamCMD notes and startup files."
-  },
-  {
-    id: "palworld",
-    name: "Palworld",
-    category: "Steam",
-    runtime: "SteamCMD",
-    image: "steamcmd-runtime",
-    command: "node runtimes/game-template-runner.mjs \"{{SERVER_NAME}}\" \"Palworld\" \"{{SERVER_PORT}}\"",
-    folders: ["Pal", "Saved", "logs"],
-    description: "Palworld template with SteamCMD notes and startup files."
+    id: "bungee",
+    name: "BungeeCord",
+    category: "Minecraft",
+    runtime: "Java 17+",
+    image: "bungee-java-runtime",
+    command: "java -Xms128M -Xmx{{SERVER_MEMORY}}M -jar server.jar",
+    folders: ["plugins", "logs", "config"],
+    description: "Downloads a real BungeeCord proxy jar on first start."
   },
   {
     id: "node-bot",
@@ -256,6 +250,81 @@ const defaultCommandMacros = [
   { id: "macro-list", name: "List players", command: "list" }
 ];
 
+const serverPresets = {
+  "lifesteal-smp": {
+    name: "Lifesteal SMP",
+    motd: "Lifesteal SMP powered by HeronPanel",
+    gamemode: "survival",
+    difficulty: "hard",
+    pvp: true,
+    slots: 80,
+    plugins: ["LuckPerms", "EssentialsX"]
+  },
+  boxpvp: {
+    name: "BoxPvP",
+    motd: "BoxPvP arena online",
+    gamemode: "survival",
+    difficulty: "normal",
+    pvp: true,
+    slots: 120,
+    plugins: ["LuckPerms", "WorldGuard"]
+  },
+  skyblock: {
+    name: "Skyblock",
+    motd: "Skyblock island network",
+    gamemode: "survival",
+    difficulty: "normal",
+    pvp: false,
+    slots: 60,
+    plugins: ["LuckPerms", "EssentialsX"]
+  },
+  smp: {
+    name: "SMP Mode",
+    motd: "SMP survival server",
+    gamemode: "survival",
+    difficulty: "normal",
+    pvp: true,
+    slots: 60,
+    plugins: ["LuckPerms"]
+  },
+  minigame: {
+    name: "Minigame Mode",
+    motd: "Fast minigame lobby",
+    gamemode: "adventure",
+    difficulty: "easy",
+    pvp: false,
+    slots: 100,
+    plugins: ["LuckPerms", "WorldGuard"]
+  }
+};
+
+const performanceModes = {
+  pvp: {
+    viewDistance: 6,
+    simulationDistance: 4,
+    pvp: true,
+    monsters: false,
+    animals: false,
+    note: "PvP Mode applied: lower view distance and reduced mob load."
+  },
+  smp: {
+    viewDistance: 8,
+    simulationDistance: 6,
+    pvp: true,
+    monsters: true,
+    animals: true,
+    note: "SMP Mode applied: balanced entities and exploration."
+  },
+  minigame: {
+    viewDistance: 5,
+    simulationDistance: 3,
+    pvp: false,
+    monsters: false,
+    animals: false,
+    note: "Minigame Mode applied: compact fast lobby settings."
+  }
+};
+
 const marketplaceItems = [
   { id: "theme-nebula", name: "Nebula UI Pack", type: "theme", price: 250, description: "Glass panels, animated stats, and premium spacing." },
   { id: "pack-survival", name: "Survival Server Pack", type: "server-pack", price: 350, description: "Starter files and plugin suggestions for survival servers." },
@@ -277,8 +346,6 @@ function defaultState() {
       clickReward: 50,
       motd: "Welcome to HeronPanel. Real backend, clean control.",
       providers: {
-        local: true,
-        pterodactyl: true,
         codesandbox: true,
         github: true,
         vps: true
@@ -428,13 +495,13 @@ function compareVersions(a, b) {
 function paperVersionAllowed(version) {
   const parts = versionParts(version);
   if (!parts) return false;
-  return compareVersions(version, "1.19") >= 0;
+  return compareVersions(version, "1.8") >= 0;
 }
 
 function normalizePaperVersion(value) {
   const version = String(value || "latest").trim();
   if (!version || version === "latest") return "latest";
-  if (!paperVersionAllowed(version)) throw new Error("Paper version must be 1.19 or newer");
+  if (!paperVersionAllowed(version)) throw new Error("Minecraft version must be 1.8 or newer");
   return version;
 }
 
@@ -449,32 +516,10 @@ function templateForEgg(egg = "") {
   return gameTemplates.find((template) => template.name.toLowerCase() === normalized || template.id === normalized) || gameTemplates[0];
 }
 
-async function ensureRuntimeTemplates() {
-  const runnerPath = join(root, "runtimes", "game-template-runner.mjs");
-  if (existsSync(runnerPath)) return;
-  await writeFile(runnerPath, `const [name = "Server", game = "Game", port = "25565"] = process.argv.slice(2);
-console.log(\`[HeronPanel] \${game} template booted for \${name} on port \${port}.\`);
-console.log("[HeronPanel] Replace this template runner with the real game binary command when ready.");
-let tick = 0;
-setInterval(() => {
-  tick += 1;
-  console.log(\`[HeronPanel] \${game} heartbeat \${tick}: process alive\`);
-}, 15000);
-process.on("SIGTERM", () => {
-  console.log("[HeronPanel] Stop signal received.");
-  process.exit(0);
-});
-process.stdin.on("data", (chunk) => {
-  console.log(\`[command] \${String(chunk).trim()}\`);
-});
-`);
-}
-
 async function ensureDirs() {
   await mkdir(serverRoot, { recursive: true });
   await mkdir(backupRoot, { recursive: true });
   await mkdir(join(root, "runtimes"), { recursive: true });
-  await ensureRuntimeTemplates();
 }
 
 async function loadState() {
@@ -516,6 +561,8 @@ function mergeState(base, saved) {
     ...base.settings.providers,
     ...((saved.settings && saved.settings.providers) || {})
   };
+  delete merged.settings.providers.local;
+  delete merged.settings.providers.pterodactyl;
   for (const key of ["primaryColor", "accentColor", "panelBackground", "animationTheme"]) {
     delete merged.settings[key];
   }
@@ -555,7 +602,20 @@ function mergeState(base, saved) {
       disabledPlugins: server.disabledPlugins || [],
       disabledMods: server.disabledMods || [],
       backupLimit: normalizeBackupLimit(server.backupLimit, 10),
+      autoBackup: {
+        hourly: server.autoBackup?.hourly !== false,
+        daily: server.autoBackup?.daily !== false,
+        lastHourly: server.autoBackup?.lastHourly || "",
+        lastDaily: server.autoBackup?.lastDaily || ""
+      },
       commandMacros: Array.isArray(server.commandMacros) && server.commandMacros.length ? server.commandMacros : defaultCommandMacros,
+      permissions: server.permissions || {
+        groups: [
+          { name: "default", permissions: ["minecraft.command.help"] },
+          { name: "moderator", permissions: ["minecraft.command.kick", "minecraft.command.ban"] },
+          { name: "admin", permissions: ["*"] }
+        ]
+      },
       autoHeal: {
         enabled: server.autoHeal?.enabled !== false,
         restarts: Number(server.autoHeal?.restarts || 0),
@@ -595,9 +655,18 @@ async function persist() {
 }
 
 function publicState(viewer = null) {
+  const visibleServers = isAdmin(viewer)
+    ? state.servers
+    : viewer
+      ? state.servers.filter((server) => server.owner === viewer.id || server.owner === viewer.username)
+      : [];
   return {
     ...state,
+    servers: visibleServers,
+    players: isAdmin(viewer) ? state.players : state.players.filter((player) => visibleServers.some((server) => server.id === player.serverId)),
     gameTemplates: gameTemplates.map(({ id, name, category, runtime, description }) => ({ id, name, category, runtime, description })),
+    serverPresets: Object.entries(serverPresets).map(([id, preset]) => ({ id, name: preset.name })),
+    performanceModes: Object.keys(performanceModes),
     marketplaceItems,
     users: isAdmin(viewer) ? state.users.map(sanitizeUser) : viewer ? [sanitizeUser(viewer)] : [],
     backend: {
@@ -624,6 +693,7 @@ function serverExpired(server) {
 }
 
 function ensureServerActive(server) {
+  if (server.status === "suspended") throw new Error("Server is suspended. Resume it before starting.");
   if (!serverExpired(server)) return;
   server.status = "expired";
   throw new Error("Server expired. Renew it by opening all 3 ads first.");
@@ -700,6 +770,24 @@ function playersFor(serverId, type) {
     .map((player) => ({ name: player.name, role: player.role, status: player.status }));
 }
 
+function applyServerPreset(server, presetId) {
+  const preset = serverPresets[String(presetId || "").trim()];
+  if (!preset) return;
+  server.preset = presetId;
+  server.motd = preset.motd || server.motd;
+  server.options = {
+    ...server.options,
+    slots: preset.slots || server.options.slots,
+    gamemode: preset.gamemode || server.options.gamemode,
+    difficulty: preset.difficulty || server.options.difficulty,
+    pvp: typeof preset.pvp === "boolean" ? preset.pvp : server.options.pvp
+  };
+  for (const plugin of preset.plugins || []) {
+    if (!server.plugins.includes(plugin)) server.plugins.push(plugin);
+  }
+  server.console.push(nowLine(`Server preset applied: ${preset.name}.`));
+}
+
 async function createServerRecord(input, spendCoins = true) {
   const id = uid("srv");
   const template = templateForEgg(input.egg);
@@ -715,7 +803,7 @@ async function createServerRecord(input, spendCoins = true) {
     name,
     egg: template.name,
     template: template.id,
-    provider: input.provider || "local",
+    provider: input.provider || "vps",
     region: input.region || "India - Mumbai",
     runtime: input.runtime || template.runtime,
     status: "stopped",
@@ -724,7 +812,7 @@ async function createServerRecord(input, spendCoins = true) {
     disk,
     allocation: `127.0.0.1:${port}`,
     ports: [String(port), String(port + 1000)],
-    owner: "admin",
+    owner: input.ownerId || "usr-admin",
     createdAt: new Date().toISOString(),
     expiresAt: new Date(Date.now() + renewalDurationMs).toISOString(),
     renewal: { watchedAds: [] },
@@ -736,8 +824,16 @@ async function createServerRecord(input, spendCoins = true) {
     disabledMods: [],
     backups: [],
     backupLimit,
+    autoBackup: { hourly: true, daily: true, lastHourly: "", lastDaily: "" },
     backupTargets: { local: true, googleDrive: false, dropbox: false },
     commandMacros: defaultCommandMacros.map((macro) => ({ ...macro, id: uid("macro") })),
+    permissions: {
+      groups: [
+        { name: "default", permissions: ["minecraft.command.help"] },
+        { name: "moderator", permissions: ["minecraft.command.kick", "minecraft.command.ban"] },
+        { name: "admin", permissions: ["*"] }
+      ]
+    },
     autoHeal: { enabled: true, restarts: 0, lastAction: "Ready" },
     optimizer: null,
     databases: [
@@ -780,13 +876,14 @@ async function createServerRecord(input, spendCoins = true) {
     ],
     console: [
       nowLine(`${name} filesystem created.`),
-      nowLine(`Adapter selected: ${input.provider || "local"}.`),
+      nowLine(`Adapter selected: ${input.provider || "vps"}.`),
       nowLine(`Primary IP: 127.0.0.1:${port}`),
       nowLine(`Template installed: ${template.name}.`),
-      nowLine(template.id === "minecraft-paper" ? `Paper version selected: ${paperVersion === "latest" ? "Latest stable" : paperVersion}.` : `Startup command prepared: ${template.command}.`),
+      nowLine(/minecraft|paper|purpur|fabric|forge|velocity|bungee/i.test(template.name) ? `Minecraft version selected: ${paperVersion === "latest" ? "Latest stable" : paperVersion}.` : `Startup command prepared: ${template.command}.`),
       nowLine(template.description)
     ]
   };
+  applyServerPreset(server, input.preset);
   await ensureServerFiles(server);
   await ensureTemplateFiles(server, template);
   await refreshServerFileList(server);
@@ -798,10 +895,6 @@ async function ensureTemplateFiles(server, template = templateForEgg(server.egg)
   const base = serverDir(server);
   for (const folder of template.folders || []) {
     await mkdir(join(base, folder), { recursive: true });
-  }
-  if (template.command.includes("game-template-runner.mjs")) {
-    await mkdir(join(base, "runtimes"), { recursive: true });
-    await copyFile(join(root, "runtimes", "game-template-runner.mjs"), join(base, "runtimes", "game-template-runner.mjs"));
   }
   const files = templateStarterFiles(server, template);
   for (const file of files) {
@@ -841,13 +934,6 @@ This folder was generated by HeronPanel one-click installer.
       { path: ".env.example", content: "DISCORD_TOKEN=put-token-here\n" },
       { path: "package.json", content: JSON.stringify({ scripts: { start: "node discord-bot.js" }, dependencies: { "discord.js": "^14.0.0" } }, null, 2) },
       { path: "discord-bot.js", content: `console.log("Discord bot template ready. Add DISCORD_TOKEN and install dependencies.");\nsetInterval(() => console.log("discord bot heartbeat"), 15000);\n` }
-    ];
-  }
-  if (["rust", "cs2", "palworld"].includes(template.id)) {
-    return [
-      { path: "README.md", content: `${commonReadme}\nSteamCMD is required for the actual dedicated server binary. Use install.ps1 or install.sh, then replace the Startup command with the real binary command for your OS.\n` },
-      { path: "install.ps1", content: `Write-Host "Install SteamCMD first, then run the official ${template.name} app_update command here."\n` },
-      { path: "install.sh", content: `#!/usr/bin/env bash\necho "Install SteamCMD first, then run the official ${template.name} app_update command here."\n` }
     ];
   }
   if (template.id === "velocity") {
@@ -1165,7 +1251,7 @@ async function listPaperVersions() {
   try {
     const payload = await fetchJson(paperApiBase);
     const versions = flattenPaperVersions(payload);
-    if (versions.length) return versions;
+    if (versions.length) return Array.from(new Set([...versions, ...paperVersionFallback])).sort((a, b) => compareVersions(b, a));
   } catch (error) {
     console.error(`Paper version list failed: ${error.message}`);
   }
@@ -1208,16 +1294,31 @@ async function resolvePaperDownload(server) {
   const requestedVersion = normalizePaperVersion(server.startup?.variables?.MC_VERSION || "latest");
   const versions = await listPaperVersions();
   const version = requestedVersion === "latest" ? versions[0] : requestedVersion;
-  if (!versions.includes(version)) throw new Error(`Paper ${version} is not available in the 1.19+ list`);
-  const buildsPayload = await fetchJson(`${paperApiBase}/versions/${encodeURIComponent(version)}/builds`);
-  const builds = (Array.isArray(buildsPayload) ? buildsPayload : buildsPayload.builds || [])
-    .filter((build) => build?.downloads?.["server:default"]?.url)
-    .sort((a, b) => Number(b.id ?? b.number ?? b.build ?? 0) - Number(a.id ?? a.number ?? a.build ?? 0));
-  const stableBuilds = builds.filter((build) => String(build.channel || "STABLE").toUpperCase() === "STABLE");
-  const latestBuild = stableBuilds[0] || builds[0];
-  if (!latestBuild) throw new Error(`No Paper server.jar build found for ${version}`);
-  const download = latestBuild.downloads["server:default"];
-  const buildNumber = latestBuild.id ?? latestBuild.number ?? latestBuild.build ?? "latest";
+  if (!versions.includes(version)) throw new Error(`Paper ${version} is not available`);
+  let download;
+  let buildNumber = "latest";
+  try {
+    const buildsPayload = await fetchJson(`${paperApiBase}/versions/${encodeURIComponent(version)}/builds`);
+    const builds = (Array.isArray(buildsPayload) ? buildsPayload : buildsPayload.builds || [])
+      .filter((build) => build?.downloads?.["server:default"]?.url)
+      .sort((a, b) => Number(b.id ?? b.number ?? b.build ?? 0) - Number(a.id ?? a.number ?? a.build ?? 0));
+    const stableBuilds = builds.filter((build) => String(build.channel || "STABLE").toUpperCase() === "STABLE");
+    const latestBuild = stableBuilds[0] || builds[0];
+    if (!latestBuild) throw new Error("No fill build");
+    download = latestBuild.downloads["server:default"];
+    buildNumber = latestBuild.id ?? latestBuild.number ?? latestBuild.build ?? "latest";
+  } catch {
+    const legacyPayload = await fetchJson(`${paperLegacyApiBase}/versions/${encodeURIComponent(version)}/builds`);
+    const builds = (legacyPayload.builds || []).sort((a, b) => Number(b.build || 0) - Number(a.build || 0));
+    const latestBuild = builds[0];
+    if (!latestBuild) throw new Error(`No Paper server.jar build found for ${version}`);
+    buildNumber = latestBuild.build;
+    const fileName = latestBuild.downloads?.application?.name || `paper-${version}-${buildNumber}.jar`;
+    download = {
+      url: `${paperLegacyApiBase}/versions/${encodeURIComponent(version)}/builds/${buildNumber}/downloads/${fileName}`,
+      name: fileName
+    };
+  }
   return {
     version,
     selected: requestedVersion,
@@ -1227,34 +1328,152 @@ async function resolvePaperDownload(server) {
   };
 }
 
+async function resolvePurpurDownload(server) {
+  const requestedVersion = normalizePaperVersion(server.startup?.variables?.MC_VERSION || "latest");
+  let version = requestedVersion;
+  if (version === "latest") {
+    const payload = await fetchJson(purpurApiBase);
+    version = [...(payload.versions || paperVersionFallback)].sort(compareVersions).reverse()[0] || "1.21.4";
+  }
+  return {
+    version,
+    selected: requestedVersion,
+    build: "latest",
+    url: `${purpurApiBase}/${encodeURIComponent(version)}/latest/download`,
+    fileName: `purpur-${version}-latest.jar`
+  };
+}
+
+async function resolveVelocityDownload() {
+  const payload = await fetchJson(`${velocityApiBase}/versions`);
+  const version = [...(payload.versions || [])].sort(compareVersions).reverse()[0];
+  if (!version) throw new Error("No Velocity version found");
+  const buildsPayload = await fetchJson(`${velocityApiBase}/versions/${encodeURIComponent(version)}/builds`);
+  const builds = (buildsPayload.builds || []).sort((a, b) => Number(b.build || 0) - Number(a.build || 0));
+  const latestBuild = builds[0];
+  if (!latestBuild) throw new Error("No Velocity build found");
+  const fileName = latestBuild.downloads?.application?.name || `velocity-${version}-${latestBuild.build}.jar`;
+  return {
+    version,
+    selected: "latest",
+    build: latestBuild.build,
+    url: `${velocityApiBase}/versions/${encodeURIComponent(version)}/builds/${latestBuild.build}/downloads/${fileName}`,
+    fileName
+  };
+}
+
+async function resolveFabricDownload(server) {
+  const requestedVersion = normalizePaperVersion(server.startup?.variables?.MC_VERSION || "latest");
+  const gameVersion = requestedVersion === "latest" ? "1.21.4" : requestedVersion;
+  const loaderVersions = await fetchJson(`https://meta.fabricmc.net/v2/versions/loader/${encodeURIComponent(gameVersion)}`);
+  const loader = (loaderVersions || []).find((entry) => entry.loader?.stable)?.loader || loaderVersions?.[0]?.loader;
+  const installers = await fetchJson("https://meta.fabricmc.net/v2/versions/installer");
+  const installer = (installers || []).find((entry) => entry.stable) || installers?.[0];
+  if (!loader?.version || !installer?.version) throw new Error(`No Fabric loader found for ${gameVersion}`);
+  return {
+    version: gameVersion,
+    selected: requestedVersion,
+    build: loader.version,
+    url: `https://meta.fabricmc.net/v2/versions/loader/${encodeURIComponent(gameVersion)}/${encodeURIComponent(loader.version)}/${encodeURIComponent(installer.version)}/server/jar`,
+    fileName: `fabric-server-${gameVersion}-${loader.version}.jar`
+  };
+}
+
+function resolveBungeeDownload() {
+  return {
+    version: "latest",
+    selected: "latest",
+    build: "lastSuccessfulBuild",
+    url: "https://ci.md-5.net/job/BungeeCord/lastSuccessfulBuild/artifact/bootstrap/target/BungeeCord.jar",
+    fileName: "BungeeCord.jar"
+  };
+}
+
+async function resolveForgeInstaller(server) {
+  const requestedVersion = normalizePaperVersion(server.startup?.variables?.MC_VERSION || "latest");
+  const mcVersion = requestedVersion === "latest" ? "1.21.4" : requestedVersion;
+  const promos = await fetchJson("https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json");
+  const forgeVersion = promos.promos?.[`${mcVersion}-latest`] || promos.promos?.[`${mcVersion}-recommended`];
+  if (!forgeVersion) throw new Error(`No Forge build found for Minecraft ${mcVersion}`);
+  const coordinate = `${mcVersion}-${forgeVersion}`;
+  return {
+    version: mcVersion,
+    forgeVersion,
+    url: `https://maven.minecraftforge.net/net/minecraftforge/forge/${coordinate}/forge-${coordinate}-installer.jar`,
+    fileName: `forge-${coordinate}-installer.jar`
+  };
+}
+
+async function ensureForgeServer(server) {
+  const base = serverDir(server);
+  const runScript = join(base, "run.sh");
+  const selectedVersion = normalizePaperVersion(server.startup?.variables?.MC_VERSION || "latest");
+  if (existsSync(runScript)
+    && server.startup?.variables?.JAR_TEMPLATE === "minecraft-forge"
+    && server.startup?.variables?.JAR_SELECTED === selectedVersion) return;
+  const installer = await resolveForgeInstaller(server);
+  const installerPath = join(base, installer.fileName);
+  addLog(server, `Downloading Forge ${installer.forgeVersion} installer for Minecraft ${installer.version}...`);
+  await downloadFile(installer.url, installerPath);
+  addLog(server, "Running Forge --installServer...");
+  await new Promise((resolve, reject) => {
+    const child = spawn("java", ["-jar", installerPath, "--installServer"], {
+      cwd: base,
+      windowsHide: true
+    });
+    child.stdout.on("data", (chunk) => addLogChunk(server, chunk));
+    child.stderr.on("data", (chunk) => addLogChunk(server, chunk, "stderr: "));
+    child.on("error", reject);
+    child.on("exit", (code) => code === 0 ? resolve() : reject(new Error(`Forge installer exited with code ${code}`)));
+  });
+  server.startup.variables.JAR_TEMPLATE = "minecraft-forge";
+  server.startup.variables.JAR_SELECTED = selectedVersion;
+  server.startup.variables.JAR_VERSION = installer.version;
+  server.startup.variables.JAR_BUILD = installer.forgeVersion;
+  server.startup.variables.JAR_FILE = installer.fileName;
+  addLog(server, `Forge ${installer.forgeVersion} installed. run.sh is ready.`);
+}
+
+async function resolveServerJarDownload(server) {
+  const template = templateForEgg(server.egg);
+  if (template.id === "minecraft-purpur") return resolvePurpurDownload(server);
+  if (template.id === "velocity") return resolveVelocityDownload(server);
+  if (template.id === "minecraft-fabric") return resolveFabricDownload(server);
+  if (template.id === "bungee") return resolveBungeeDownload();
+  return resolvePaperDownload(server);
+}
+
 async function ensureRealMinecraftJar(server) {
   const command = templateCommand(server);
   if (!/\bserver\.jar\b/i.test(command)) return;
   const jarPath = join(serverDir(server), "server.jar");
+  const template = templateForEgg(server.egg);
   const selectedVersion = normalizePaperVersion(server.startup?.variables?.MC_VERSION || "latest");
   const installedMatches = existsSync(jarPath)
-    && server.startup?.variables?.PAPER_SELECTED === selectedVersion
-    && (selectedVersion === "latest" || server.startup?.variables?.PAPER_VERSION === selectedVersion);
+    && server.startup?.variables?.JAR_TEMPLATE === template.id
+    && server.startup?.variables?.JAR_SELECTED === selectedVersion;
   if (installedMatches) return;
-  addLog(server, `${existsSync(jarPath) ? "Replacing" : "Downloading"} server.jar for ${selectedVersion === "latest" ? "latest stable Paper" : `Paper ${selectedVersion}`}...`);
-  const download = await resolvePaperDownload(server);
+  addLog(server, `${existsSync(jarPath) ? "Replacing" : "Downloading"} ${template.name} server.jar for ${selectedVersion === "latest" ? "latest stable" : selectedVersion}...`);
+  const download = await resolveServerJarDownload(server);
   await downloadFile(download.url, jarPath);
-  server.startup.variables.PAPER_SELECTED = download.selected;
+  server.startup.variables.JAR_TEMPLATE = template.id;
+  server.startup.variables.JAR_SELECTED = download.selected;
   server.startup.variables.MC_VERSION = download.version;
   if (download.selected === "latest") server.startup.variables.MC_VERSION = "latest";
-  server.startup.variables.PAPER_BUILD = String(download.build);
-  server.startup.variables.PAPER_VERSION = download.version;
-  server.startup.variables.PAPER_JAR = download.fileName;
-  addLog(server, `Paper ${download.version} build ${download.build} downloaded as server.jar.`);
+  server.startup.variables.JAR_BUILD = String(download.build);
+  server.startup.variables.JAR_VERSION = download.version;
+  server.startup.variables.JAR_FILE = download.fileName;
+  addLog(server, `${template.name} ${download.version} build ${download.build} downloaded as server.jar.`);
 }
 
 async function startServer(server) {
   ensureServerActive(server);
   if (processes.has(server.id)) return;
   await ensureServerFiles(server);
-  if (/minecraft|paper|forge|fabric|velocity/i.test(server.egg || "")) {
+  if (/minecraft|paper|purpur|forge|fabric|velocity|bungee/i.test(server.egg || "")) {
     try {
-      await ensureRealMinecraftJar(server);
+      if (templateForEgg(server.egg).id === "minecraft-forge") await ensureForgeServer(server);
+      else await ensureRealMinecraftJar(server);
     } catch (error) {
       server.status = "stopped";
       addLog(server, `Start blocked: ${error.message}`);
@@ -1387,6 +1606,47 @@ async function restoreBackup(server, backupId) {
   addLog(server, `Restored backup: ${backup.name}`);
 }
 
+let maintenanceRunning = false;
+
+async function runMaintenance() {
+  if (maintenanceRunning) return;
+  maintenanceRunning = true;
+  try {
+    let changed = false;
+    const now = Date.now();
+    for (const server of state.servers || []) {
+      for (const schedule of server.schedules || []) {
+        if (!cronDue(schedule)) continue;
+        try {
+          await runScheduleAction(server, schedule);
+          changed = true;
+        } catch (error) {
+          schedule.lastRun = new Date().toISOString();
+          addLog(server, `Scheduled task failed: ${schedule.name}: ${error.message}`);
+          changed = true;
+        }
+      }
+      if (server.autoBackup?.hourly !== false && now - new Date(server.autoBackup?.lastHourly || 0).getTime() >= 60 * 60 * 1000) {
+        await createBackup(server, `${server.name}-hourly-auto`);
+        server.autoBackup = { ...(server.autoBackup || {}), lastHourly: new Date(now).toISOString() };
+        addLog(server, "Hourly auto backup completed.");
+        changed = true;
+      }
+      if (server.autoBackup?.daily !== false && now - new Date(server.autoBackup?.lastDaily || 0).getTime() >= 24 * 60 * 60 * 1000) {
+        await createBackup(server, `${server.name}-daily-auto`);
+        server.autoBackup = { ...(server.autoBackup || {}), lastDaily: new Date(now).toISOString() };
+        addLog(server, "Daily auto backup completed.");
+        changed = true;
+      }
+    }
+    if (changed) await persist();
+  } catch (error) {
+    console.error(`[HeronPanel] maintenance failed: ${error.message}`);
+  } finally {
+    maintenanceRunning = false;
+  }
+}
+
 function buildOptimizerReport(server) {
   const logs = (server.console || []).join("\n").toLowerCase();
   const suggestions = [];
@@ -1427,28 +1687,125 @@ function buildOptimizerReport(server) {
 }
 
 function buildNetworkAnalytics(server) {
-  const seed = server.id.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
-  const minute = Math.floor(Date.now() / 60000);
-  const points = Array.from({ length: 12 }, (_, index) => {
-    const value = 40 + Math.abs(Math.sin((seed + minute + index) / 3)) * 120 + index * 3;
-    return Math.round(value);
+  const logs = (server.console || []).slice(-120);
+  const buckets = Array.from({ length: 12 }, () => 0);
+  logs.forEach((line, index) => {
+    const bucket = Math.min(11, Math.floor(index / Math.max(1, Math.ceil(logs.length / 12))));
+    buckets[bucket] += /joined the game|lost connection|connected/i.test(line) ? 8 : /error|exception|failed/i.test(line) ? 5 : 1;
   });
-  const spike = Math.max(...points);
-  const suspicious = spike > 145 ? [
-    `203.0.113.${(seed % 80) + 10}`,
-    `198.51.100.${(seed % 60) + 20}`
-  ] : [];
+  const points = buckets.map((value) => value + (server.status === "running" ? 2 : 0));
+  const spike = Math.max(...points, 0);
+  const suspicious = [];
+  if ((server.ports || []).length > 3) suspicious.push("Too many exposed ports");
+  if ((server.plugins || []).some((name) => /backdoor|forceop|shell|eval/i.test(name))) suspicious.push("Dangerous plugin pattern");
   return {
-    attackLevel: spike > 155 ? "elevated" : "normal",
+    attackLevel: suspicious.length ? "review" : "normal",
     packetsPerSecond: spike,
     traffic: points,
     suspicious,
-    note: suspicious.length ? "Packet spike pattern detected. Check firewall/provider logs." : "Traffic pattern looks normal."
+    note: suspicious.length ? "Review security findings and provider firewall logs." : "Traffic model is based on real panel logs and exposed-port state."
   };
+}
+
+function buildHealthReport(server) {
+  const logs = (server.console || []).join("\n").toLowerCase();
+  const pluginCount = (server.plugins || []).length;
+  const modCount = (server.mods || []).length;
+  const exposedPorts = (server.ports || []).length;
+  const dangerousPlugins = (server.plugins || []).filter((name) => /skript|eval|op|forceop|authme|cracked|backdoor|shell/i.test(name));
+  const opPlayers = state.players.filter((player) => player.serverId === server.id && ["Owner", "Operator"].includes(player.role));
+  let optimization = 96;
+  let security = 94;
+  let performance = 95;
+  if (logs.includes("can't keep up") || logs.includes("overloaded")) performance -= 25;
+  if (logs.includes("outofmemory") || logs.includes("java heap")) performance -= 30;
+  if (pluginCount > 20) optimization -= 15;
+  if (modCount > 12) optimization -= 10;
+  if (Number(server.ram || 0) < Math.max(2, Math.ceil((pluginCount + modCount) / 6))) performance -= 12;
+  if (dangerousPlugins.length) security -= 30;
+  if (exposedPorts > 3) security -= 10;
+  if (opPlayers.length > 2) security -= 8;
+  const issues = [
+    ...dangerousPlugins.map((name) => `Dangerous plugin pattern: ${name}`),
+    ...(exposedPorts > 3 ? [`${exposedPorts} exposed ports. Keep only required ports open.`] : []),
+    ...(opPlayers.length > 2 ? [`${opPlayers.length} OP-level players detected.`] : []),
+    ...(logs.includes("exception") ? ["Console contains exception logs."] : [])
+  ];
+  return {
+    optimization: Math.max(5, optimization),
+    security: Math.max(5, security),
+    performance: Math.max(5, performance),
+    recommendedRamGb: Math.max(1, Math.ceil(1.5 + pluginCount / 8 + modCount / 4 + Number(server.options?.slots || 60) / 80)),
+    issues,
+    scannedAt: new Date().toISOString()
+  };
+}
+
+async function applyRamAutoAllocator(server) {
+  const report = buildHealthReport(server);
+  server.ram = Math.min(Math.max(report.recommendedRamGb, Number(server.ram || 1)), 64);
+  server.startup.variables.SERVER_MEMORY = String(server.ram * 1024);
+  addLog(server, `RAM Auto Allocator set RAM to ${server.ram} GB.`);
+  return report;
+}
+
+async function applyPerformanceMode(server, modeId) {
+  const mode = performanceModes[String(modeId || "").trim().toLowerCase()];
+  if (!mode) throw new Error("Performance mode not found");
+  server.options = {
+    ...server.options,
+    pvp: mode.pvp,
+    monsters: mode.monsters,
+    animals: mode.animals
+  };
+  await mkdir(serverDir(server), { recursive: true });
+  await writeFile(join(serverDir(server), "spigot.yml"), [
+    "settings:",
+    `  view-distance: ${mode.viewDistance}`,
+    `  simulation-distance: ${mode.simulationDistance}`
+  ].join("\n") + "\n");
+  await writeFile(join(serverDir(server), "heron-performance-mode.json"), JSON.stringify({ mode: modeId, appliedAt: new Date().toISOString(), ...mode }, null, 2));
+  await ensureServerFiles(server);
+  await refreshServerFileList(server);
+  addLog(server, mode.note);
+  addActivity(`${server.name}: ${modeId} performance mode applied.`);
 }
 
 function commandMacro(server, id) {
   return (server.commandMacros || []).find((macro) => macro.id === id);
+}
+
+function cronDue(schedule, now = new Date()) {
+  const cron = String(schedule.cron || "").trim();
+  if (!cron || schedule.active === false) return false;
+  const lastMinute = Math.floor(new Date(schedule.lastRun || 0).getTime() / 60000);
+  const thisMinute = Math.floor(now.getTime() / 60000);
+  if (lastMinute === thisMinute) return false;
+  const [minute = "*", hour = "*"] = cron.split(/\s+/);
+  const matchPart = (part, value) => {
+    if (part === "*") return true;
+    if (part.startsWith("*/")) {
+      const step = Number(part.slice(2));
+      return Number.isFinite(step) && step > 0 && value % step === 0;
+    }
+    return part.split(",").some((item) => Number(item) === value);
+  };
+  return matchPart(minute, now.getMinutes()) && matchPart(hour, now.getHours());
+}
+
+async function runScheduleAction(server, schedule) {
+  const action = String(schedule.action || "").trim();
+  if (action === "backup") await createBackup(server, `${server.name}-${schedule.name}`);
+  else if (action === "restart") {
+    await stopServer(server, "restart");
+    setTimeout(() => startServer(server).catch(console.error), 1200);
+  } else if (action === "start") await startServer(server);
+  else if (action === "stop") await stopServer(server);
+  else if (action.startsWith("command:")) sendServerCommand(server, action.slice("command:".length));
+  else if (action.startsWith("broadcast:")) addLog(server, `[Broadcast] ${action.slice("broadcast:".length).trim()}`);
+  else throw new Error(`Unknown schedule action: ${action}`);
+  schedule.lastRun = new Date().toISOString();
+  addLog(server, `Scheduled task ran: ${schedule.name}`);
 }
 
 function sendServerCommand(server, command) {
@@ -1479,16 +1836,26 @@ async function installContent(server, type, itemId) {
   const catalog = type === "plugin" ? state.pluginCatalog : state.modCatalog;
   const item = catalog.find((entry) => entry.id === itemId);
   if (!item) throw new Error("Catalog item not found");
+  if (!item.sourceUrl) {
+    const searchType = normalizeContentType(type);
+    const loader = searchType === "plugin" ? "paper" : "fabric";
+    const results = await searchModrinth({
+      query: item.name,
+      type: searchType,
+      loader,
+      gameVersion: server.startup?.variables?.MC_VERSION === "latest" ? "" : server.startup?.variables?.MC_VERSION,
+      limit: 6
+    });
+    const match = results.find((entry) => entry.name.toLowerCase() === item.name.toLowerCase()) || results[0];
+    if (!match) throw new Error(`${item.name} has no real download source. Use online search or upload the jar.`);
+    return installExternalContent(server, { ...match, type: searchType, loader });
+  }
   const folder = type === "plugin" ? "plugins" : "mods";
   const targetFolder = join(serverDir(server), folder);
   await mkdir(targetFolder, { recursive: true });
   const targetName = `${slug(item.name)}-${item.version}.jar`;
   const targetPath = join(targetFolder, targetName);
-  if (item.sourceUrl) {
-    await downloadFile(item.sourceUrl, targetPath);
-  } else {
-    await writeFile(targetPath, `HeronPanel catalog marker\nName: ${item.name}\nVersion: ${item.version}\nAdd a sourceUrl in Admin catalog for automatic real jar downloads.\n`);
-  }
+  await downloadFile(item.sourceUrl, targetPath);
   const list = type === "plugin" ? server.plugins : server.mods;
   if (!list.includes(item.name)) list.push(item.name);
   await refreshServerFileList(server);
@@ -1579,6 +1946,68 @@ async function updateContent(server, type, name) {
   }
   addLog(server, `${name} update checked. Add a catalog source URL for automatic jar replacement.`);
   return name;
+}
+
+function scanContentUpdates(server, type = "plugin") {
+  const catalog = normalizeContentType(type) === "mod" ? state.modCatalog : state.pluginCatalog;
+  const installed = contentList(server, type);
+  return installed.map((name) => {
+    const item = catalog.find((entry) => entry.name.toLowerCase() === String(name).toLowerCase());
+    return {
+      name,
+      installed: "installed",
+      latest: item?.version || "unknown",
+      updateAvailable: Boolean(item?.sourceUrl),
+      sourceUrl: item?.sourceUrl || ""
+    };
+  });
+}
+
+async function writePermissionsFile(server) {
+  const lines = ["groups:"];
+  for (const group of server.permissions?.groups || []) {
+    lines.push(`  ${group.name}:`);
+    lines.push("    permissions:");
+    for (const permission of group.permissions || []) lines.push(`      - ${permission}`);
+  }
+  await mkdir(join(serverDir(server), "plugins", "LuckPerms"), { recursive: true });
+  await writeFile(join(serverDir(server), "plugins", "LuckPerms", "heron-permissions.yml"), `${lines.join("\n")}\n`);
+  await refreshServerFileList(server);
+}
+
+async function buildWorldMap(server) {
+  const regionDir = join(serverDir(server), "world", "region");
+  const regions = [];
+  if (existsSync(regionDir)) {
+    for (const entry of await readdir(regionDir, { withFileTypes: true })) {
+      const match = entry.name.match(/^r\.(-?\d+)\.(-?\d+)\.mca$/);
+      if (entry.isFile() && match) regions.push({ x: Number(match[1]), z: Number(match[2]), file: entry.name });
+    }
+  }
+  return {
+    regions,
+    generatedAt: new Date().toISOString(),
+    note: regions.length ? "Region files detected from world/region." : "No region files found yet. Start or upload a world first."
+  };
+}
+
+function runServerShell(server, command) {
+  const clean = String(command || "").trim();
+  if (!clean) throw new Error("Command required");
+  if (/[;&|`]/.test(clean)) throw new Error("Shell chaining is blocked in Web SSH terminal");
+  return new Promise((resolve, reject) => {
+    const child = spawn(clean, {
+      cwd: serverDir(server),
+      shell: true,
+      windowsHide: true,
+      timeout: 15000
+    });
+    let output = "";
+    child.stdout.on("data", (chunk) => output += chunk);
+    child.stderr.on("data", (chunk) => output += chunk);
+    child.on("error", reject);
+    child.on("exit", (code) => resolve({ code, output: output.slice(-12000) }));
+  });
 }
 
 async function writeServerIcon(server, dataUrl) {
@@ -1831,13 +2260,43 @@ async function handleApi(request, response, url) {
       const body = await readBody(request);
       if (state.servers.length >= Number(state.settings.maxServers)) throw new Error("Server limit reached");
       if (state.coins < Number(state.settings.serverCost)) throw new Error("Not enough coins");
-      const server = await createServerRecord(body, true);
+      const server = await createServerRecord({ ...body, ownerId: currentUser.id }, true);
       state.servers.unshift(server);
       state.selectedServerId = server.id;
       addActivity(`${server.name} created with ${server.provider} adapter.`);
       if (body.autoStart) await startServer(server);
       await persist();
       sendJson(response, { ok: true, state: publicState() });
+      return;
+    }
+
+    const lifecycleMatch = path.match(/^\/api\/servers\/([^/]+)\/lifecycle$/);
+    if (request.method === "POST" && lifecycleMatch) {
+      const server = findServer(lifecycleMatch[1]);
+      const body = await readBody(request);
+      const action = String(body.action || "").trim();
+      if (action === "delete") {
+        await stopServer(server).catch(() => {});
+        state.servers = state.servers.filter((item) => item.id !== server.id);
+        state.players = state.players.filter((player) => player.serverId !== server.id);
+        await rm(serverDir(server), { recursive: true, force: true });
+        addActivity(`${server.name}: deleted.`);
+        await persist();
+        sendJson(response, { ok: true, state: publicState(currentUser) });
+        return;
+      }
+      if (action === "suspend") {
+        await stopServer(server).catch(() => {});
+        server.status = "suspended";
+        addLog(server, "Server suspended.");
+      } else if (action === "resume") {
+        if (server.status === "suspended") server.status = "stopped";
+        addLog(server, "Server resumed.");
+      } else {
+        throw new Error("Invalid lifecycle action");
+      }
+      await persist();
+      sendJson(response, { ok: true, state: publicState(currentUser) });
       return;
     }
 
@@ -1906,6 +2365,32 @@ async function handleApi(request, response, url) {
       addActivity(`${server.name}: optimizer scan completed.`);
       await persist();
       sendJson(response, { ok: true, report: server.optimizer, state: publicState(currentUser) });
+      return;
+    }
+
+    const performanceModeMatch = path.match(/^\/api\/servers\/([^/]+)\/performance-mode$/);
+    if (request.method === "POST" && performanceModeMatch) {
+      const server = findServer(performanceModeMatch[1]);
+      const body = await readBody(request);
+      await applyPerformanceMode(server, body.mode);
+      await persist();
+      sendJson(response, { ok: true, state: publicState(currentUser) });
+      return;
+    }
+
+    const healthMatch = path.match(/^\/api\/servers\/([^/]+)\/health$/);
+    if (request.method === "GET" && healthMatch) {
+      const server = findServer(healthMatch[1]);
+      sendJson(response, { ok: true, health: buildHealthReport(server) });
+      return;
+    }
+
+    const ramAutoMatch = path.match(/^\/api\/servers\/([^/]+)\/ram-auto$/);
+    if (request.method === "POST" && ramAutoMatch) {
+      const server = findServer(ramAutoMatch[1]);
+      const health = await applyRamAutoAllocator(server);
+      await persist();
+      sendJson(response, { ok: true, health, state: publicState(currentUser) });
       return;
     }
 
@@ -2077,6 +2562,37 @@ async function handleApi(request, response, url) {
       return;
     }
 
+    const chunkUploadMatch = path.match(/^\/api\/servers\/([^/]+)\/upload-chunk$/);
+    if (request.method === "POST" && chunkUploadMatch) {
+      const server = findServer(chunkUploadMatch[1]);
+      const body = await readBody(request);
+      const uploadId = slug(body.uploadId || body.name || "world-upload");
+      const fileName = cleanRelativePath(body.name || "world.zip").split("/").pop();
+      const index = Number(body.index || 0);
+      const total = Number(body.total || 1);
+      const targetPath = cleanOptionalPath(body.targetPath || ".");
+      const chunk = decodeDataUrl(body.dataUrl);
+      if (chunk.length > 8 * 1024 * 1024) throw new Error("Chunk must stay under 8 MB");
+      const tempDir = join(serverDir(server), ".uploads", uploadId);
+      await mkdir(tempDir, { recursive: true });
+      await writeFile(join(tempDir, String(index).padStart(6, "0")), chunk);
+      if (index + 1 >= total) {
+        const finalPath = safeServerPath(server, targetPath === "." ? fileName : `${targetPath}/${fileName}`);
+        await mkdir(dirname(finalPath), { recursive: true });
+        const parts = [];
+        for (let part = 0; part < total; part += 1) {
+          parts.push(await readFile(join(tempDir, String(part).padStart(6, "0"))));
+        }
+        await writeFile(finalPath, Buffer.concat(parts));
+        await rm(tempDir, { recursive: true, force: true });
+        await refreshServerFileList(server);
+        addLog(server, `Chunk upload completed: ${targetPath}/${fileName}`);
+        await persist();
+      }
+      sendJson(response, { ok: true, complete: index + 1 >= total, state: publicState(currentUser) });
+      return;
+    }
+
     const zipListMatch = path.match(/^\/api\/servers\/([^/]+)\/zip$/);
     if (request.method === "GET" && zipListMatch) {
       const server = findServer(zipListMatch[1]);
@@ -2209,7 +2725,12 @@ async function handleApi(request, response, url) {
         delete server.startup.variables.PAPER_VERSION;
         delete server.startup.variables.PAPER_BUILD;
         delete server.startup.variables.PAPER_JAR;
-        addLog(server, `Paper version changed to ${selectedPaperVersion === "latest" ? "Latest stable" : selectedPaperVersion}. Next start will install that jar.`);
+        delete server.startup.variables.JAR_TEMPLATE;
+        delete server.startup.variables.JAR_SELECTED;
+        delete server.startup.variables.JAR_VERSION;
+        delete server.startup.variables.JAR_BUILD;
+        delete server.startup.variables.JAR_FILE;
+        addLog(server, `Minecraft version changed to ${selectedPaperVersion === "latest" ? "Latest stable" : selectedPaperVersion}. Next start will install the matching jar.`);
       }
       addLog(server, "Startup command and variables updated.");
       addActivity(`${server.name}: startup updated.`);
@@ -2232,6 +2753,27 @@ async function handleApi(request, response, url) {
       addActivity(`${server.name}: port ${port} added.`);
       await persist();
       sendJson(response, { ok: true, state: publicState() });
+      return;
+    }
+
+    const domainMatch = path.match(/^\/api\/servers\/([^/]+)\/domain$/);
+    if (request.method === "POST" && domainMatch) {
+      const server = findServer(domainMatch[1]);
+      const body = await readBody(request);
+      const domain = String(body.domain || "").trim().toLowerCase();
+      if (!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain)) throw new Error("Valid domain required");
+      server.customDomain = {
+        domain,
+        target: serverAddress(server),
+        srvName: `_minecraft._tcp.${domain}`,
+        srvTarget: String(server.allocation || "").split(":")[0] || "127.0.0.1",
+        srvPort: primaryPort(server),
+        updatedAt: new Date().toISOString()
+      };
+      addLog(server, `Custom domain helper saved for ${domain}.`);
+      addActivity(`${server.name}: custom domain ${domain} configured.`);
+      await persist();
+      sendJson(response, { ok: true, state: publicState(currentUser) });
       return;
     }
 
@@ -2425,6 +2967,51 @@ async function handleApi(request, response, url) {
       return;
     }
 
+    const contentUpdatesMatch = path.match(/^\/api\/servers\/([^/]+)\/content\/updates$/);
+    if (request.method === "GET" && contentUpdatesMatch) {
+      const server = findServer(contentUpdatesMatch[1]);
+      const type = normalizeContentType(url.searchParams.get("type"));
+      sendJson(response, { ok: true, updates: scanContentUpdates(server, type) });
+      return;
+    }
+
+    const permissionsMatch = path.match(/^\/api\/servers\/([^/]+)\/permissions$/);
+    if (request.method === "POST" && permissionsMatch) {
+      const server = findServer(permissionsMatch[1]);
+      const body = await readBody(request);
+      const groups = Array.isArray(body.groups) ? body.groups : [];
+      server.permissions = {
+        groups: groups.map((group) => ({
+          name: slug(group.name || "group"),
+          permissions: String(group.permissions || "").split(/\r?\n|,/).map((item) => item.trim()).filter(Boolean)
+        })).filter((group) => group.name)
+      };
+      await writePermissionsFile(server);
+      addLog(server, "Permissions manager saved LuckPerms-compatible file.");
+      await persist();
+      sendJson(response, { ok: true, state: publicState(currentUser) });
+      return;
+    }
+
+    const worldMapMatch = path.match(/^\/api\/servers\/([^/]+)\/world-map$/);
+    if (request.method === "GET" && worldMapMatch) {
+      const server = findServer(worldMapMatch[1]);
+      sendJson(response, { ok: true, map: await buildWorldMap(server) });
+      return;
+    }
+
+    const shellMatch = path.match(/^\/api\/servers\/([^/]+)\/shell$/);
+    if (request.method === "POST" && shellMatch) {
+      requireAdmin(currentUser);
+      const server = findServer(shellMatch[1]);
+      const body = await readBody(request);
+      const result = await runServerShell(server, body.command);
+      addLog(server, `Web SSH command ran: ${body.command}`);
+      await persist();
+      sendJson(response, { ok: true, result, state: publicState(currentUser) });
+      return;
+    }
+
     const playerMatch = path.match(/^\/api\/players\/([^/]+)\/action$/);
     if (request.method === "POST" && playerMatch) {
       const body = await readBody(request);
@@ -2491,7 +3078,7 @@ async function handleApi(request, response, url) {
         motd: String(body.motd || state.settings.motd).trim(),
         providers: { ...state.settings.providers, ...(body.providers || {}) }
       };
-      if (!Object.values(state.settings.providers).some(Boolean)) state.settings.providers.local = true;
+      if (!Object.values(state.settings.providers).some(Boolean)) state.settings.providers.vps = true;
       addActivity("Admin settings saved.");
       await persist();
       sendJson(response, { ok: true, state: publicState(currentUser) });
@@ -2544,28 +3131,30 @@ async function handleApi(request, response, url) {
 function syncPlayers() {
   const server = state.servers.find((item) => item.id === state.selectedServerId) || state.servers[0];
   if (!server) return;
-  const names = ["Kabir", "Meera", "Dev", "Ishan", "Anaya", "Riya"];
-  const existing = new Set(state.players.map((player) => player.name));
-  const next = names.find((name) => !existing.has(name));
-  if (next) {
-    state.players.push({
-      id: uid("p"),
-      name: next,
-      serverId: server.id,
-      role: "Member",
-      status: server.status === "running" ? "online" : "offline",
-      ping: server.status === "running" ? 30 + Math.floor(Math.random() * 80) : 0,
-      whitelisted: true
-    });
-    addActivity(`${next} synced to ${server.name}.`);
-  } else {
-    state.players = state.players.map((player) => {
-      const playerServer = state.servers.find((item) => item.id === player.serverId);
-      const online = playerServer?.status === "running" && player.status !== "banned";
-      return { ...player, status: online ? "online" : player.status === "banned" ? "banned" : "offline", ping: online ? 30 + Math.floor(Math.random() * 80) : 0 };
-    });
-    addActivity("Player status refreshed from managed servers.");
+  const logText = (server.console || []).join("\n");
+  const joined = Array.from(logText.matchAll(/\]:\s*([A-Za-z0-9_]{3,16}) joined the game/g)).map((match) => match[1]);
+  const left = new Set(Array.from(logText.matchAll(/\]:\s*([A-Za-z0-9_]{3,16}) left the game/g)).map((match) => match[1]));
+  for (const name of joined) {
+    if (!state.players.some((player) => player.serverId === server.id && player.name === name)) {
+      state.players.push({
+        id: uid("p"),
+        name,
+        serverId: server.id,
+        role: "Member",
+        status: "online",
+        ping: 0,
+        whitelisted: true
+      });
+    }
   }
+  state.players = state.players.map((player) => {
+    if (player.serverId !== server.id) return player;
+    if (player.status === "banned") return player;
+    if (left.has(player.name)) return { ...player, status: "offline", ping: 0 };
+    if (joined.includes(player.name) && server.status === "running") return { ...player, status: "online", ping: 0 };
+    return { ...player, status: server.status === "running" ? player.status : "offline", ping: 0 };
+  });
+  addActivity(`${server.name}: players synced from console join/leave logs.`);
 }
 
 function resolveStatic(urlPath) {
@@ -2591,6 +3180,8 @@ function serveStatic(request, response, path) {
 }
 
 await loadState();
+runMaintenance();
+setInterval(runMaintenance, 60 * 1000);
 
 createServer((request, response) => {
   const url = new URL(request.url || "/", `http://${request.headers.host || "127.0.0.1"}`);

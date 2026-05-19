@@ -78,11 +78,12 @@
           <label>Game egg<select name="egg" id="eggSelect"></select></label>
           <label>Provider<select name="provider" id="providerSelect"></select></label>
         </div>
+        <label>Server template<select name="preset" id="presetSelect"><option value="">Clean server</option></select></label>
         <div class="form-grid">
           <label>Region<input name="region" value="India - Mumbai"></label>
           <label>Runtime<input name="runtime" value="Java 21"></label>
         </div>
-        <label>Paper version<select name="paperVersion" class="paper-version-select"><option value="latest">Latest Paper</option></select></label>
+        <label>Minecraft version<select name="paperVersion" class="paper-version-select"><option value="latest">Latest stable</option></select></label>
         <div class="form-grid">
           <label>RAM GB<input name="ram" type="number" min="1" max="64" value="2"></label>
           <label>CPU %<input name="cpu" type="number" min="25" max="800" value="100"></label>
@@ -117,8 +118,6 @@
         </div>
         <label>Default MOTD<textarea name="motd" rows="3"></textarea></label>
         <div class="toggle-grid">
-          <label class="checkbox-row"><input name="local" type="checkbox"> Local</label>
-          <label class="checkbox-row"><input name="pterodactyl" type="checkbox"> Pterodactyl</label>
           <label class="checkbox-row"><input name="codesandbox" type="checkbox"> Codesandbox</label>
           <label class="checkbox-row"><input name="github" type="checkbox"> GitHub</label>
           <label class="checkbox-row"><input name="vps" type="checkbox"> VPS</label>

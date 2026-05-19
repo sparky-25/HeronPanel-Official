@@ -7,8 +7,6 @@ const siteNameKey = "heronpanel-site-name";
 const siteTitleKey = "heronpanel-site-title";
 
 const providerCatalog = [
-  { id: "local", name: "Local backend" },
-  { id: "pterodactyl", name: "Pterodactyl" },
   { id: "codesandbox", name: "Codesandbox" },
   { id: "github", name: "GitHub" },
   { id: "vps", name: "Real VPS" }
@@ -16,13 +14,11 @@ const providerCatalog = [
 
 const gameEggs = [
   "Minecraft Java Paper",
-  "Minecraft Bedrock",
+  "Purpur",
   "Forge Modded",
   "Fabric Modded",
   "Velocity Proxy",
-  "Rust",
-  "CS2",
-  "Palworld",
+  "BungeeCord",
   "Node.js Bot",
   "Python Bot",
   "Discord Bot"
@@ -37,6 +33,9 @@ let dashboardQuery = "";
 let dashboardStatusFilter = "all";
 let consoleSearch = "";
 let analyticsCache = {};
+let healthCache = {};
+let worldMapCache = {};
+let shellOutput = "";
 let fileBrowser = { path: ".", entries: [] };
 let fileEditor = { path: "", content: "", loaded: false };
 let zipViewer = { zipPath: "", dir: "", entries: [], previewEntry: "", previewContent: "" };
@@ -52,7 +51,12 @@ let paperVersions = [
   { value: "1.20.1", label: "Paper 1.20.1" },
   { value: "1.19.4", label: "Paper 1.19.4" },
   { value: "1.19.2", label: "Paper 1.19.2" },
-  { value: "1.19", label: "Paper 1.19" }
+  { value: "1.19", label: "Paper 1.19" },
+  { value: "1.18.2", label: "Paper 1.18.2" },
+  { value: "1.17.1", label: "Paper 1.17.1" },
+  { value: "1.16.5", label: "Paper 1.16.5" },
+  { value: "1.12.2", label: "Paper 1.12.2" },
+  { value: "1.8.8", label: "Paper 1.8.8" }
 ];
 let paperVersionsPromise = null;
 
@@ -238,6 +242,22 @@ function setDropZoneBusy(zone, label) {
 
 async function uploadFilesToServer(serverId, targetPath, picked) {
   if (!picked.length) throw new Error("Select files or a folder first.");
+  if (picked.length === 1 && picked[0].size > 8 * 1024 * 1024) {
+    const file = picked[0];
+    const chunkSize = 6 * 1024 * 1024;
+    const total = Math.ceil(file.size / chunkSize);
+    const uploadId = `${Date.now()}-${file.name}`;
+    for (let index = 0; index < total; index += 1) {
+      const dataUrl = await readFileAsDataUrl(file.slice(index * chunkSize, Math.min(file.size, (index + 1) * chunkSize)));
+      await api(`/api/servers/${serverId}/upload-chunk`, {
+        method: "POST",
+        body: { uploadId, name: file.name, targetPath: cleanUiPath(targetPath), index, total, dataUrl }
+      });
+    }
+    fileBrowser.entries = [];
+    await refresh();
+    return 1;
+  }
   const files = [];
   for (const file of picked.slice(0, 120)) {
     files.push({
@@ -859,6 +879,9 @@ function renderContent() {
     mods: () => renderInstaller("mod"),
     players: renderPlayers,
     optimizer: renderOptimizer,
+    health: renderHealth,
+    map: renderWorldMap,
+    terminal: renderTerminal,
     analytics: renderAnalytics,
     autoheal: renderAutoHeal
   };
@@ -886,7 +909,7 @@ function renderConsole(server) {
           <div class="ptero-card-head">${icon("server")} ${escapeHtml(server.name)}</div>
           <div class="server-status-line"><span class="dot ${server.status === "running" ? "live" : ""}"></span>${escapeHtml(server.status)}</div>
           <div class="stat-line address-line" title="${escapeHtml(server.allocation)}">${icon("network")} ${escapeHtml(server.allocation)}</div>
-          <div class="stat-line">${icon("code")} Paper ${escapeHtml(selectedPaperVersion(server) === "latest" ? "Latest" : selectedPaperVersion(server))}</div>
+          <div class="stat-line">${icon("code")} MC ${escapeHtml(selectedPaperVersion(server) === "latest" ? "Latest" : selectedPaperVersion(server))}</div>
           <div class="stat-line">${icon("activity")} ${server.cpu}% CPU limit</div>
           <div class="stat-line">${icon("server")} ${server.ram * 1024} MB RAM</div>
           <div class="stat-line">${icon("folder")} ${server.disk} GB disk</div>
@@ -937,7 +960,7 @@ function chartCard(title, unit, value) {
   return `
     <article class="chart-card">
       <div class="ptero-card-head">${icon("activity")} ${title}</div>
-      <div class="fake-chart">
+      <div class="metric-chart">
         <span style="--value:${value}%"></span>
         <small>${value}${unit}</small>
       </div>
@@ -984,6 +1007,13 @@ function renderInlineFileEditor(server) {
       <label>Path<input name="path" value="${escapeHtml(fileEditor.path)}"></label>
       <label>Content<textarea name="content" rows="18">${escapeHtml(fileEditor.content)}</textarea></label>
     </form>
+    <article class="panel-card">
+      <div class="section-header compact"><h2>Lifecycle</h2></div>
+      <div class="row-actions wrap">
+        <button class="ghost-button" type="button" data-action="server-lifecycle" data-id="${escapeHtml(server.id)}" data-lifecycle="${server.status === "suspended" ? "resume" : "suspend"}">${icon("shield")}${server.status === "suspended" ? "Resume" : "Suspend"}</button>
+        <button class="danger-button" type="button" data-action="server-lifecycle" data-id="${escapeHtml(server.id)}" data-lifecycle="delete">${icon("ban")}Delete server</button>
+      </div>
+    </article>
   `;
 }
 
@@ -1081,10 +1111,20 @@ function renderSettings(server) {
 }
 
 function renderNetwork(server) {
+  const domain = server.customDomain;
   return `
     <form class="stack-form control-panel" data-network-form data-id="${escapeHtml(server.id)}">
       <div class="section-header compact"><h2>Network</h2><button class="primary-button" type="submit">${icon("network")}Add port</button></div>
       <div class="form-grid"><label>Port<input name="port" type="number" placeholder="25566"></label><label class="checkbox-row"><input name="primary" type="checkbox"> Set primary</label></div>
+    </form>
+    <form class="stack-form control-panel" data-domain-form data-id="${escapeHtml(server.id)}">
+      <div class="section-header compact"><h2>Custom Domain Connect</h2><button class="primary-button" type="submit">${icon("network")}Save DNS helper</button></div>
+      <label>Domain<input name="domain" placeholder="play.example.com" value="${escapeHtml(domain?.domain || "")}"></label>
+      ${domain ? `<div class="settings-list">
+        <div class="setting-item"><span>SRV name</span><strong>${escapeHtml(domain.srvName)}</strong></div>
+        <div class="setting-item"><span>SRV target</span><strong>${escapeHtml(domain.srvTarget)}</strong></div>
+        <div class="setting-item"><span>SRV port</span><strong>${escapeHtml(domain.srvPort)}</strong></div>
+      </div>` : ""}
     </form>
     <div class="settings-list">
       <div class="setting-item"><span>Primary allocation</span><strong>${escapeHtml(server.allocation)}</strong></div>
@@ -1109,9 +1149,9 @@ function renderSchedules(server) {
     <form class="stack-form control-panel" data-schedule-form data-id="${escapeHtml(server.id)}">
       <div class="section-header compact"><h2>Schedules</h2><button class="primary-button" type="submit">${icon("calendar")}Add</button></div>
       <div class="form-grid"><label>Name<input name="name"></label><label>Cron<input name="cron" value="0 4 * * *"></label></div>
-      <label>Action<select name="action"><option>restart</option><option>backup</option><option>stop</option><option>start</option><option>command:say Scheduled message</option></select></label>
+      <label>Action<select name="action"><option>restart</option><option>backup</option><option>stop</option><option>start</option><option>command:say Scheduled message</option><option>broadcast:Scheduled broadcast</option></select></label>
     </form>
-    <div class="settings-list">${server.schedules.map((schedule) => `<div class="setting-item"><span>${escapeHtml(schedule.name)} <small class="muted">${escapeHtml(schedule.cron)}</small></span><div class="row-actions"><strong>${escapeHtml(schedule.action)}</strong><button class="mini-button" data-action="remove-resource" data-id="${escapeHtml(server.id)}" data-type="schedule" data-resource-id="${escapeHtml(schedule.id)}">${icon("ban")}Remove</button></div></div>`).join("")}</div>
+    <div class="settings-list">${server.schedules.map((schedule) => `<div class="setting-item"><span>${escapeHtml(schedule.name)} <small class="muted">${escapeHtml(schedule.cron)} ${schedule.lastRun ? `last ${new Date(schedule.lastRun).toLocaleString("en-IN")}` : ""}</small></span><div class="row-actions"><strong>${escapeHtml(schedule.action)}</strong><button class="mini-button" data-action="remove-resource" data-id="${escapeHtml(server.id)}" data-type="schedule" data-resource-id="${escapeHtml(schedule.id)}">${icon("ban")}Remove</button></div></div>`).join("")}</div>
   `;
 }
 
@@ -1153,9 +1193,13 @@ function renderStartup(server) {
       <div class="section-header compact"><h2>Startup</h2><button class="primary-button" type="submit">${icon("code")}Save</button></div>
       <div class="form-grid">
         <label>Runtime image<input name="image" value="${escapeHtml(server.startup.image)}"></label>
-        <label>Paper version<select name="paperVersion" class="paper-version-select" data-selected="${escapeHtml(paperVersion)}">${paperVersionOptions(paperVersion)}</select></label>
+        <label>Minecraft version<select name="paperVersion" class="paper-version-select" data-selected="${escapeHtml(paperVersion)}">${paperVersionOptions(paperVersion)}</select></label>
       </div>
       <label>Command<textarea name="command" rows="3">${escapeHtml(server.startup.command)}</textarea></label>
+      <div class="form-grid">
+        <label>Startup builder<select data-startup-preset><option value="">Select preset</option><option value="aikars">Aikar flags</option><option value="lowram">Low RAM</option><option value="proxy">Proxy</option></select></label>
+        <button class="ghost-button" type="button" data-action="build-startup" data-id="${escapeHtml(server.id)}">${icon("settings")}Generate flags</button>
+      </div>
       <label>Variables<textarea name="variablesText" rows="8">${escapeHtml(variablesText(server.startup.variables))}</textarea></label>
     </form>
   `;
@@ -1193,7 +1237,7 @@ function renderInstalledContent(server, type) {
   const disabled = type === "plugin" ? server.disabledPlugins || [] : server.disabledMods || [];
   return `
     <article class="panel-card installed-content">
-      <div class="section-header compact"><h2>Installed ${type === "plugin" ? "plugins" : "mods"}</h2><span class="status-pill">${list.length} installed</span></div>
+      <div class="section-header compact"><h2>Installed ${type === "plugin" ? "plugins" : "mods"}</h2><button class="mini-button" data-action="content-scan-updates" data-id="${escapeHtml(server.id)}" data-type="${type}">${icon("restart")}Check all</button><span class="status-pill">${list.length} installed</span></div>
       <div class="settings-list">
         ${list.map((name) => {
           const off = disabled.includes(name);
@@ -1237,6 +1281,7 @@ function renderCatalogItem(item, type, server) {
 
 function renderPlayers(server) {
   const players = state.players.filter((player) => player.serverId === server.id);
+  const groups = server.permissions?.groups || [];
   return `
     <div class="players-layout">
       <article class="panel-card">
@@ -1257,6 +1302,16 @@ function renderPlayers(server) {
           <button class="ghost-button" type="submit">${icon("send")}Send broadcast</button>
         </form>
       </article>
+      <form class="panel-card stack-form" data-permissions-form data-id="${escapeHtml(server.id)}">
+        <div class="section-header compact"><h2>LuckPerms GUI</h2><button class="primary-button" type="submit">${icon("shield")}Save permissions</button></div>
+        ${[0, 1, 2].map((index) => {
+          const group = groups[index] || { name: index === 0 ? "default" : `group-${index + 1}`, permissions: [] };
+          return `<div class="form-grid">
+            <label>Group<input name="groupName" value="${escapeHtml(group.name)}"></label>
+            <label>Permissions<textarea name="groupPermissions" rows="3">${escapeHtml((group.permissions || []).join("\n"))}</textarea></label>
+          </div>`;
+        }).join("")}
+      </form>
     </div>
   `;
 }
@@ -1288,21 +1343,28 @@ function renderOptimizer(server) {
         <div class="section-header compact"><h2>Remove candidates</h2></div>
         <div class="settings-list">${(report.removeCandidates || []).map((item) => `<div class="setting-item"><span>${escapeHtml(item)}</span><span class="muted">disabled</span></div>`).join("") || `<div class="setting-item"><span>No removal candidate yet.</span><span class="muted">empty</span></div>`}</div>
       </article>
+      <article class="panel-card">
+        <div class="section-header compact"><h2>Performance modes</h2></div>
+        <div class="row-actions wrap">
+          <button class="mini-button" data-action="performance-mode" data-id="${escapeHtml(server.id)}" data-mode="pvp">${icon("activity")}PvP Mode</button>
+          <button class="mini-button" data-action="performance-mode" data-id="${escapeHtml(server.id)}" data-mode="smp">${icon("server")}SMP Mode</button>
+          <button class="mini-button" data-action="performance-mode" data-id="${escapeHtml(server.id)}" data-mode="minigame">${icon("code")}Minigame Mode</button>
+        </div>
+      </article>
     </div>
   `;
 }
 
 function fallbackAnalytics(server) {
-  const seed = server.id.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
-  const traffic = Array.from({ length: 12 }, (_, index) => Math.round(30 + Math.abs(Math.sin((seed + index) / 4)) * 110));
-  return { attackLevel: "normal", packetsPerSecond: Math.max(...traffic), traffic, suspicious: [], note: "Refresh analytics for live server-side packet model." };
+  const traffic = Array.from({ length: 12 }, (_, index) => Math.max(0, Math.round(((server.console || []).length / 12) + (server.status === "running" ? 2 : 0) + (index % 3))));
+  return { attackLevel: "normal", packetsPerSecond: Math.max(...traffic, 0), traffic, suspicious: [], note: "Refresh analytics for server-side log and port model." };
 }
 
 function renderAnalytics(server) {
   const analytics = analyticsCache[server.id] || fallbackAnalytics(server);
   return `
     <article class="panel-card">
-      <div class="section-header"><div><p class="eyebrow">DDoS Analytics</p><h2>${escapeHtml(analytics.attackLevel)} traffic</h2></div><button class="primary-button" data-action="refresh-analytics" data-id="${escapeHtml(server.id)}">${icon("network")}Refresh</button></div>
+      <div class="section-header"><div><p class="eyebrow">Traffic Analytics</p><h2>${escapeHtml(analytics.attackLevel)} traffic</h2></div><button class="primary-button" data-action="refresh-analytics" data-id="${escapeHtml(server.id)}">${icon("network")}Refresh</button></div>
       <div class="analytics-bars">${analytics.traffic.map((value) => `<span style="--value:${Math.min(100, Math.round((value / Math.max(...analytics.traffic)) * 100))}%"></span>`).join("")}</div>
       <div class="dashboard-strip compact-strip">
         ${dashboardStat("PPS peak", analytics.packetsPerSecond, "activity")}
@@ -1310,6 +1372,67 @@ function renderAnalytics(server) {
         ${dashboardStat("Status", analytics.attackLevel, "shield")}
       </div>
       <div class="settings-list">${analytics.suspicious.map((ip) => `<div class="setting-item"><span>${escapeHtml(ip)}</span><span class="status-pill">suspicious</span></div>`).join("") || `<div class="setting-item"><span>${escapeHtml(analytics.note)}</span><span class="muted">normal</span></div>`}</div>
+    </article>
+  `;
+}
+
+function renderHealth(server) {
+  const health = healthCache[server.id] || {
+    optimization: 82,
+    security: 65,
+    performance: 91,
+    recommendedRamGb: server.ram,
+    issues: ["Run scanner for live health data."]
+  };
+  return `
+    <div class="smart-grid">
+      <article class="panel-card">
+        <div class="section-header"><div><p class="eyebrow">Server Health Score</p><h2>Optimization ${health.optimization}%</h2></div><button class="primary-button" data-action="health-scan" data-id="${escapeHtml(server.id)}">${icon("shield")}Scan</button></div>
+        ${chartCard("Optimization", "%", health.optimization)}
+        ${chartCard("Security", "%", health.security)}
+        ${chartCard("Performance", "%", health.performance)}
+      </article>
+      <article class="panel-card">
+        <div class="section-header compact"><h2>Security Scanner</h2><button class="ghost-button" data-action="ram-auto" data-id="${escapeHtml(server.id)}">${icon("activity")}Auto RAM ${escapeHtml(health.recommendedRamGb)}GB</button></div>
+        <div class="settings-list">${(health.issues || []).map((issue) => `<div class="setting-item"><span>${escapeHtml(issue)}</span><span class="status-pill">scan</span></div>`).join("") || `<div class="setting-item"><span>No major security issue detected.</span><span class="muted">clean</span></div>`}</div>
+      </article>
+    </div>
+  `;
+}
+
+function renderWorldMap(server) {
+  const map = worldMapCache[server.id] || { regions: [], note: "Refresh map to scan world/region files." };
+  const xs = map.regions.map((region) => region.x);
+  const zs = map.regions.map((region) => region.z);
+  const minX = xs.length ? Math.min(...xs) : -2;
+  const maxX = xs.length ? Math.max(...xs) : 2;
+  const minZ = zs.length ? Math.min(...zs) : -2;
+  const maxZ = zs.length ? Math.max(...zs) : 2;
+  const regionSet = new Set(map.regions.map((region) => `${region.x},${region.z}`));
+  const cells = [];
+  for (let z = minZ; z <= maxZ; z += 1) {
+    for (let x = minX; x <= maxX; x += 1) {
+      cells.push(`<span class="${regionSet.has(`${x},${z}`) ? "has-region" : ""}" title="r.${x}.${z}.mca"></span>`);
+    }
+  }
+  return `
+    <article class="panel-card">
+      <div class="section-header"><div><p class="eyebrow">Live Player Map</p><h2>World region browser</h2></div><button class="primary-button" data-action="refresh-map" data-id="${escapeHtml(server.id)}">${icon("layer")}Refresh map</button></div>
+      <div class="world-map-grid" style="--cols:${Math.max(1, maxX - minX + 1)}">${cells.join("")}</div>
+      <p class="muted">${escapeHtml(map.note || "")}</p>
+    </article>
+  `;
+}
+
+function renderTerminal(server) {
+  return `
+    <article class="panel-card">
+      <div class="section-header"><div><p class="eyebrow">Web SSH Terminal</p><h2>${escapeHtml(server.name)} workspace</h2></div><span class="status-pill">admin only</span></div>
+      <form class="command-row" data-shell-form data-id="${escapeHtml(server.id)}">
+        <input name="command" placeholder="ls">
+        <button class="primary-button" type="submit">${icon("terminal")}Run</button>
+      </form>
+      <pre class="console-box ptero-console">${escapeHtml(shellOutput || "Run a command inside this server folder.")}</pre>
     </article>
   `;
 }
@@ -1337,9 +1460,14 @@ function renderAutoHeal(server) {
 function fillCreateOptions() {
   const eggSelect = $("#eggSelect");
   const providerSelect = $("#providerSelect");
+  const presetSelect = $("#presetSelect");
   if (eggSelect) {
     const eggs = state?.gameTemplates?.map((template) => template.name) || gameEggs;
     eggSelect.innerHTML = eggs.map((egg) => `<option>${escapeHtml(egg)}</option>`).join("");
+  }
+  if (presetSelect) {
+    const presets = state?.serverPresets || [];
+    presetSelect.innerHTML = `<option value="">Clean server</option>${presets.map((preset) => `<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.name)}</option>`).join("")}`;
   }
   if (providerSelect && state) {
     providerSelect.innerHTML = providerCatalog
@@ -1360,8 +1488,8 @@ function fillAdminForm() {
   form.clickTarget.value = state.settings.clickTarget;
   form.clickReward.value = state.settings.clickReward;
   form.motd.value = state.settings.motd;
-  for (const key of ["local", "pterodactyl", "codesandbox", "github", "vps"]) {
-    form[key].checked = state.settings.providers[key];
+  for (const key of ["codesandbox", "github", "vps"]) {
+    if (form[key]) form[key].checked = state.settings.providers[key];
   }
 }
 
@@ -1459,6 +1587,7 @@ function bindStaticForms() {
       name: form.get("name"),
       egg: form.get("egg"),
       provider: form.get("provider"),
+      preset: form.get("preset"),
       paperVersion: form.get("paperVersion") || "latest",
       region: form.get("region"),
       runtime: form.get("runtime"),
@@ -1497,8 +1626,6 @@ function bindStaticForms() {
       clickReward: Number(form.clickReward.value),
       motd: form.motd.value,
       providers: {
-        local: form.local.checked,
-        pterodactyl: form.pterodactyl.checked,
         codesandbox: form.codesandbox.checked,
         github: form.github.checked,
         vps: form.vps.checked
@@ -1608,6 +1735,18 @@ function bindDelegatedActions() {
         await refresh();
         return;
       }
+      if (action === "server-lifecycle") {
+        const lifecycle = button.dataset.lifecycle;
+        if (lifecycle === "delete" && !confirm("Delete this server and its files permanently?")) return;
+        await api(`/api/servers/${id}/lifecycle`, { method: "POST", body: { action: lifecycle } });
+        if (lifecycle === "delete") {
+          location.href = "index.html";
+          return;
+        }
+        await refresh();
+        toast("Server lifecycle", `${lifecycle} complete.`);
+        return;
+      }
       if (action === "renew-ad") {
         const payload = await api(`/api/servers/${id}/renew/ad`, { method: "POST", body: { adIndex: Number(button.dataset.adIndex) } });
         window.open(payload.url, "_blank", "noopener,noreferrer");
@@ -1655,6 +1794,47 @@ function bindDelegatedActions() {
         toast("Optimizer", "AI scan completed.");
         return;
       }
+      if (action === "performance-mode") {
+        await api(`/api/servers/${id}/performance-mode`, { method: "POST", body: { mode: button.dataset.mode } });
+        await refresh();
+        toast("Performance mode", `${button.textContent.trim()} applied.`);
+        return;
+      }
+      if (action === "health-scan") {
+        const payload = await api(`/api/servers/${id}/health`);
+        healthCache[id] = payload.health;
+        renderContent();
+        toast("Health scan", "Scores refreshed.");
+        return;
+      }
+      if (action === "ram-auto") {
+        const payload = await api(`/api/servers/${id}/ram-auto`, { method: "POST", body: {} });
+        healthCache[id] = payload.health;
+        await refresh();
+        toast("RAM Auto Allocator", "Recommended RAM applied.");
+        return;
+      }
+      if (action === "refresh-map") {
+        const payload = await api(`/api/servers/${id}/world-map`);
+        worldMapCache[id] = payload.map;
+        renderContent();
+        return;
+      }
+      if (action === "build-startup") {
+        const form = button.closest("[data-startup-form]");
+        const mode = form?.querySelector("[data-startup-preset]")?.value;
+        const commandBox = form?.elements.command;
+        if (!mode || !commandBox) return;
+        const memory = selectedServer()?.ram ? selectedServer().ram * 1024 : "{{SERVER_MEMORY}}";
+        const commands = {
+          aikars: `java -Xms${memory}M -Xmx${memory}M -XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -jar server.jar nogui`,
+          lowram: `java -Xms128M -Xmx${memory}M -XX:+UseSerialGC -jar server.jar nogui`,
+          proxy: `java -Xms128M -Xmx${memory}M -jar server.jar`
+        };
+        commandBox.value = commands[mode];
+        toast("Startup builder", "Flags generated. Press Save to apply.");
+        return;
+      }
       if (action === "refresh-analytics") {
         const payload = await api(`/api/servers/${id}/analytics`);
         analyticsCache[id] = payload.analytics;
@@ -1676,6 +1856,12 @@ function bindDelegatedActions() {
         await api(`/api/servers/${id}/content/update`, { method: "POST", body: { type: button.dataset.type, name: button.dataset.name } });
         await refresh();
         toast("Update check", "Content update check completed.");
+        return;
+      }
+      if (action === "content-scan-updates") {
+        const payload = await api(`/api/servers/${id}/content/updates?type=${encodeURIComponent(button.dataset.type || "plugin")}`);
+        const updates = payload.updates || [];
+        toast("Plugin update checker", `${updates.filter((item) => item.updateAvailable).length}/${updates.length} have catalog update sources.`);
         return;
       }
       if (action === "folder-open") {
@@ -1922,6 +2108,12 @@ function bindDelegatedActions() {
         const data = new FormData(form);
         await api(`/api/servers/${form.dataset.id}/network`, { method: "POST", body: { port: data.get("port"), primary: data.get("primary") === "on" } });
         await refresh();
+      } else if (form.matches("[data-domain-form]")) {
+        event.preventDefault();
+        const data = new FormData(form);
+        await api(`/api/servers/${form.dataset.id}/domain`, { method: "POST", body: { domain: data.get("domain") } });
+        await refresh();
+        toast("Domain helper saved", "Use the shown SRV values in your DNS provider.");
       } else if (form.matches("[data-backup-form]")) {
         event.preventDefault();
         const data = new FormData(form);
@@ -1952,6 +2144,23 @@ function bindDelegatedActions() {
         const data = new FormData(form);
         await api(`/api/servers/${form.dataset.id}/startup`, { method: "POST", body: { image: data.get("image"), command: data.get("command"), paperVersion: data.get("paperVersion"), variablesText: data.get("variablesText") } });
         await refresh();
+      } else if (form.matches("[data-permissions-form]")) {
+        event.preventDefault();
+        const data = new FormData(form);
+        const names = data.getAll("groupName");
+        const permissions = data.getAll("groupPermissions");
+        await api(`/api/servers/${form.dataset.id}/permissions`, {
+          method: "POST",
+          body: { groups: names.map((name, index) => ({ name, permissions: permissions[index] || "" })) }
+        });
+        await refresh();
+        toast("Permissions saved", "LuckPerms-compatible file generated.");
+      } else if (form.matches("[data-shell-form]")) {
+        event.preventDefault();
+        const data = new FormData(form);
+        const payload = await api(`/api/servers/${form.dataset.id}/shell`, { method: "POST", body: { command: data.get("command") } });
+        shellOutput = `$ ${data.get("command")}\n${payload.result.output || `(exit ${payload.result.code})`}`;
+        renderContent();
       } else if (form.matches("[data-subuser-form]")) {
         event.preventDefault();
         const data = new FormData(form);
